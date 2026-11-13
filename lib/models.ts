@@ -11,3 +11,7 @@ export const KOKORO_VOICE = "af_bella";
 // Context-aware transcription of a finished spoken request (whole clip plus the page's names). Measured: gemini-3.8-flash
 // timed out (over 15 s); gemini-4-hydrogen took 3 to 5 s and hit 429 (it shares quota with chart reading).
 export const GEMINI_HEARING_MODEL = "gemini-3.5-flash-lite";
+// Video outlines (a YouTube fileData part), through generateJsonChain so a failure falls back.
+// Measured on the Khan atomic-weight video (EPvd-3712U8, 266 s): gemini-3.6-flash 20 s, quoted slide text; gemini-4-hydrogen 21 s,
+// quoted more of it ("13C 1.110% 13.0034 amu", the final equation) and its last segment was specific where 3.6-flash's was generic.
+export const GEMINI_VIDEO_MODELS = ["gemini-4-hydrogen", GEMINI_VISION_MODEL];
