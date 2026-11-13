@@ -1,0 +1,89 @@
+{
+ "title": "Wearable sensor system diagram (lower-limb rehabilitation)",
+ "overview": "A wearable sensor network on the body talks by RF to a belt unit. The belt sends motion data by Bluetooth to a smartphone app, which makes a rehabilitation prescription.",
+ "source": "Sensors 2024, 24(6), 1935, CC BY, Figure 1 (check figure number on page)",
+ "imageSize": [
+  1280,
+  459
+ ],
+ "stops": [
+  {
+   "n": 1,
+   "label": "belt",
+   "says": "The belt unit. It holds an IMU, an MCU, an RF module and a BLE module. The MCU talks to the IMU over I2C, to the RF module over SPI, and to the BLE module over UART.",
+   "box_2d": [
+    222,
+    754,
+    438,
+    991
+   ],
+   "confidence": "hand-fixed",
+   "checkedBy": "claude (eye); owner to confirm"
+  },
+  {
+   "n": 2,
+   "label": "right thigh",
+   "says": "The right thigh module. It has an IMU, an MCU and an RF module. The IMU links to the MCU over I2C, and the MCU links to the RF module over SPI.",
+   "box_2d": [
+    536,
+    455,
+    636,
+    758
+   ],
+   "confidence": "hand-fixed",
+   "checkedBy": "claude (eye); owner to confirm"
+  },
+  {
+   "n": 3,
+   "label": "right calf",
+   "says": "The right calf module. It has the same three parts: an IMU, an MCU and an RF module.",
+   "box_2d": [
+    643,
+    455,
+    743,
+    758
+   ],
+   "confidence": "hand-fixed",
+   "checkedBy": "claude (eye); owner to confirm"
+  },
+  {
+   "n": 4,
+   "label": "left thigh",
+   "says": "The left thigh module. Again an IMU, an MCU and an RF module.",
+   "box_2d": [
+    752,
+    455,
+    852,
+    758
+   ],
+   "confidence": "hand-fixed",
+   "checkedBy": "claude (eye); owner to confirm"
+  },
+  {
+   "n": 5,
+   "label": "left calf",
+   "says": "The left calf module. This is the fourth and last leg module.",
+   "box_2d": [
+    858,
+    455,
+    959,
+    758
+   ],
+   "confidence": "hand-fixed",
+   "checkedBy": "claude (eye); owner to confirm"
+  },
+  {
+   "n": 6,
+   "label": "smartphone app",
+   "says": "The smartphone app. Motion data from the belt comes in here. AI algorithms turn it into a rehabilitation prescription, and the user interface shows it.",
+   "box_2d": [
+    601,
+    830,
+    978,
+    992
+   ],
+   "confidence": "hand-fixed",
+   "checkedBy": "claude (eye); owner to confirm"
+  }
+ ]
+}

@@ -1,0 +1,121 @@
+{
+ "title": "Mission Architecture Matrix Diagram",
+ "overview": "This flowchart outlines the Mission Architecture Matrix and its transformation into the Mission Scale. It shows how spacecraft modules and operational steps combine through matrix operations.",
+ "stops": [
+  {
+   "n": 1,
+   "label": "Mission Architecture Matrix (MAM)",
+   "says": "At the top, the Mission Architecture Matrix encapsulates spacecraft modules and basic operation steps.",
+   "box_2d": [
+    75,
+    137,
+    563,
+    484
+   ],
+   "confidence": "high"
+  },
+  {
+   "n": 2,
+   "label": "Basic Step Vector (BSV)",
+   "says": "The Basic Step Vector represents an individual row of operational steps.",
+   "box_2d": [
+    172,
+    137,
+    252,
+    481
+   ],
+   "confidence": "medium"
+  },
+  {
+   "n": 3,
+   "label": "Basic Operation Steps (BOS)",
+   "says": "The Basic Operation Steps form the larger vertical collection of rows.",
+   "box_2d": [
+    123,
+    75,
+    497,
+    133
+   ],
+   "confidence": "medium"
+  },
+  {
+   "n": 4,
+   "label": "Expansion",
+   "says": "An expansion process connects the matrix to the Basic Step Matrix.",
+   "box_2d": [
+    239,
+    665,
+    337,
+    752
+   ],
+   "confidence": "medium"
+  },
+  {
+   "n": 5,
+   "label": "Spacecraft physical parameters",
+   "says": "Spacecraft physical parameters feed directly into the Basic Step Matrix.",
+   "box_2d": [
+    396,
+    896,
+    508,
+    989
+   ],
+   "confidence": "medium"
+  },
+  {
+   "n": 6,
+   "label": "Basic Step Matrix (BSM)",
+   "says": "The Basic Step Matrix incorporates expansion and physical parameters.",
+   "box_2d": [
+    390,
+    560,
+    483,
+    856
+   ],
+   "confidence": "high"
+  },
+  {
+   "n": 7,
+   "label": "Matrix Operation",
+   "says": "A matrix operation combines the mission architecture matrix and the basic step matrix.",
+   "box_2d": [
+    603,
+    237,
+    762,
+    381
+   ],
+   "confidence": "high"
+  },
+  {
+   "n": 8,
+   "label": "Mission Scale",
+   "says": "At the very end, the final output yields the Mission Scale.",
+   "box_2d": [
+    852,
+    199,
+    970,
+    421
+   ],
+   "confidence": "high"
+  }
+ ],
+ "usage": {
+  "promptTokenCount": 1288,
+  "candidatesTokenCount": 693,
+  "totalTokenCount": 1981,
+  "promptTokensDetails": [
+   {
+    "modality": "TEXT",
+    "tokenCount": 222
+   },
+   {
+    "modality": "IMAGE",
+    "tokenCount": 1066
+   }
+  ],
+  "serviceTier": "standard"
+ },
+ "ms": 2213,
+ "attempts": 1,
+ "variant": "v2"
+}

@@ -1,0 +1,31 @@
+{
+  "name": "arc",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx server.ts",
+    "build": "next build",
+    "start": "NODE_ENV=production tsx server.ts",
+    "selfcheck": "tsx scripts/selfcheck.ts",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "cheerio": "^1.2.0",
+    "kokoro-js": "^1.2.1",
+    "next": "16.4.6",
+    "playwright-core": "^1.65.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "ws": "^8.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/ws": "^8.18.2",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.6",
+    "tsx": "^4.23.15",
+    "typescript": "^5"
+  }
+}
