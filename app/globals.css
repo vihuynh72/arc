@@ -169,8 +169,11 @@ header button[aria-pressed="true"] {
 
 /* Sticky command bar only where there is room for it: wide and tall screens, never at high zoom. */
 @media (min-width: 68.75rem) and (min-height: 45rem) {
+  :root {
+    --header-h: 10.5rem; /* clears the sticky header (8.3rem; 10.5rem with the command status line), so nothing parks behind it */
+  }
   html {
-    scroll-padding-top: 10rem;
+    scroll-padding-top: var(--header-h);
     scroll-padding-bottom: 8rem;
   }
   header {
@@ -756,7 +759,7 @@ figure figure figcaption {
 
 @media (min-width: 68.75rem) and (min-height: 45rem) {
   [data-cursor] {
-    scroll-margin-top: 16vh;
+    scroll-margin-top: 4rem; /* on top of html's scroll-padding-top (the header): Reader.tsx adds the two for its anchor line */
   }
 }
 
@@ -1486,4 +1489,52 @@ kbd {
   #content > section[aria-labelledby="results-title"] > ol > li:first-child {
     border-top: 0;
   }
+}
+
+/* ---------- Figures park by their card top; the tour fits between the sticky header and the reader bar ---------- */
+
+figure[data-node-id] {
+  scroll-margin-top: 1.5rem; /* on top of html's scroll-padding-top (the sticky header) */
+}
+
+@media (min-width: 68.75rem) and (min-height: 45rem) {
+  /* The image, its ringed caption and the card top all stay on screen together. */
+  figure[data-node-id] > img {
+    max-height: 38vh;
+    object-fit: contain;
+  }
+  /* While a tour is open it comes first: image with ring, stop line, controls. */
+  figure:has([data-tour])::before {
+    display: none;
+  }
+  figure > [data-tour] {
+    order: -1;
+  }
+  [data-tour] section {
+    gap: 0.75rem;
+  }
+  [data-tour] section > div:first-child {
+    width: fit-content;
+    max-width: 100%;
+    margin-inline: auto;
+  }
+  [data-tour] section > div:first-child img {
+    width: auto !important;
+    max-width: 100%;
+    max-height: 32vh;
+  }
+  [data-tour] section > p {
+    padding: 0.75rem 1rem;
+    font-size: 1.0625rem;
+    line-height: 1.625rem;
+  }
+  [data-tour] [role="application"] {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.5rem !important;
+  }
+}
+
+/* A tour has its own ring on the image; the reader's ring on the caption would compete with it. */
+body:has([data-tour]) .arc-ring {
+  opacity: 0 !important;
 }

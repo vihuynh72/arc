@@ -12,6 +12,9 @@ type Props = {
 
 const nodeEl = (id: string) => document.querySelector<HTMLElement>(`[data-node-id="${id}"]`);
 
+// A figure parks by its card top (image above, ringed caption below); anything else parks by its ringed element.
+const parkEl = (el: HTMLElement, kind: string) => (kind === "figure" ? el : (el.querySelector<HTMLElement>("[data-cursor]") ?? el));
+
 export default function Reader({ items, paused, onTour }: Props) {
   const [index, setIndex] = useState(-1);
   const [rate, setRate] = useState(1);
@@ -54,7 +57,7 @@ export default function Reader({ items, paused, onTour }: Props) {
       if (opts.scroll !== false) {
         live.current.progUntil = performance.now() + 700; // smooth scroll takes up to ~0.6 s; scrollend clears it sooner
         const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        (el.querySelector("[data-cursor]") ?? el).scrollIntoView({ block: node.kind === "figure" ? "center" : "start", behavior: calm ? "auto" : "smooth" });
+        parkEl(el, node.kind).scrollIntoView({ block: "start", behavior: calm ? "auto" : "smooth" });
       }
       place(true);
       const figureIndex = node.kind === "figure" ? list.slice(0, i + 1).filter((n) => n.kind === "figure").length : undefined;
@@ -134,10 +137,15 @@ export default function Reader({ items, paused, onTour }: Props) {
       L.raf = 0;
       let best = -1;
       let gap = Infinity;
+      const hd = document.querySelector("header");
+      const clear = hd && getComputedStyle(hd).position === "sticky" ? hd.getBoundingClientRect().bottom + 24 : -Infinity; // ring (8px out) stays 16px below a sticky header
       L.items.forEach((n, i) => {
-        const c = nodeEl(n.id)?.querySelector("[data-cursor]") ?? nodeEl(n.id);
-        if (!c) return;
-        const d = Math.abs(c.getBoundingClientRect().top - (parseFloat(getComputedStyle(c).scrollMarginTop) || 0));
+        const el = nodeEl(n.id);
+        const c = el && (el.querySelector("[data-cursor]") ?? el); // the ringed element
+        const p = el && parkEl(el, n.kind); // the element a move parks at the top
+        if (!c || !p) return;
+        const land = (parseFloat(getComputedStyle(p).scrollMarginTop) || 0) + (parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop) || 0); // where a move parks it
+        const d = Math.abs(p.getBoundingClientRect().top - land) + (c.getBoundingClientRect().top < clear ? 1e6 : 0); // a ring under the header only wins when nothing else is on screen
         if (d < gap) [best, gap] = [i, d];
       });
       if (best >= 0 && best !== L.index) moveTo(best, { from: "scroll" });
@@ -190,6 +198,7 @@ export default function Reader({ items, paused, onTour }: Props) {
           said(`I could not find ${String(args?.query ?? "that")}.`);
           void speaker.say([`I could not find ${String(args?.query ?? "that")}.`]);
         }
+        else if (args?.silent) moveTo(i, { read: false }); // Twin places the cursor on new content and speaks its own line
         else {
           moveTo(i);
           said(`Moved to ${list[i].heading}.`);
