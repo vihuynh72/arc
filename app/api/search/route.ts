@@ -1,9 +1,9 @@
-// POST {query} -> web search through the Bright Data Web Unlocker, raced with OpenAlex open-access papers.
+// POST {query} -> web search through Bright Data (Google SERP zone, else Web Unlocker + DuckDuckGo/Bing), raced with OpenAlex papers.
 // With `accept: application/x-ndjson` it streams one line per batch as each lands ({results, via, ms}); otherwise one merged JSON.
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import * as cheerio from "cheerio";
-import { unlock } from "@/lib/server/brightdata";
+import { serp, unlock } from "@/lib/server/brightdata";
 import { searchPapers } from "@/lib/server/openalex";
 
 export const runtime = "nodejs";
@@ -55,11 +55,33 @@ const routes: [string, (q: string) => string, (h: string) => Hit[]][] = [
 
 type Batch = { results: Hit[]; via: string; ms: number };
 
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+// The SERP zone sometimes answers 200 with an empty body after 35 s or more: 5 s cap, a second copy at 3 s, first good one wins.
+async function google(q: string): Promise<Hit[]> {
+  // google.com/goto links hide the real address, so they are dropped.
+  const once = async () => {
+    const hits = clean((await serp(q, AbortSignal.timeout(5000))).filter((o) => !/^https?:\/\/(www\.)?google\./.test(o.link)).map((o) => ({ title: o.title, url: o.link, snippet: o.description ?? "" })));
+    if (hits.length < 3) throw new Error("too few usable SERP results"); // same bar as the Unlocker routes below
+    return hits;
+  };
+  const first = once();
+  const second = Promise.race([first, sleep(3000).then(() => Promise.reject(new Error("first not back")))]).catch(() => once());
+  return Promise.any([first, second]);
+}
+
 /** The Bright Data web results, from the disk cache when this query was searched before. */
 async function web(q: string, t: number): Promise<Batch> {
   const file = `.cache/search/${createHash("sha1").update(q.toLowerCase()).digest("hex")}.json`;
   const hit = await readFile(file, "utf8").catch(() => null);
   if (hit) return { ...JSON.parse(hit), via: "cache", ms: Date.now() - t };
+  try {
+    const results = (await google(q)).slice(0, 8);
+    await mkdir(".cache/search", { recursive: true });
+    await writeFile(file, JSON.stringify({ results, via: "brightdata:google" }));
+    return { results, via: "brightdata:google", ms: Date.now() - t };
+  } catch {
+    // fall back to the Web Unlocker routes
+  }
   for (const [via, url, parse] of routes) {
     try {
       const results = clean(parse(await unlock(url(encodeURIComponent(q)), { markdown: false }))).slice(0, 8);
@@ -107,7 +129,11 @@ export async function POST(req: Request) {
       return true;
     }),
   });
-  const jobs = [papers(q, t), web(q, t)];
+  const w = web(q, t);
+  const p = papers(q, t);
+  // Bright Data leads when it answers within about 2 s; otherwise OpenAlex keeps the 2-second promise and Bright Data is appended.
+  const quick = await Promise.race([w.then(() => true, () => false), sleep(1800).then(() => false)]);
+  const jobs = quick ? [w, p] : [p, w];
 
   if (!/ndjson/.test(req.headers.get("accept") ?? "")) {
     const done = await Promise.allSettled(jobs);
@@ -120,7 +146,16 @@ export async function POST(req: Request) {
   const body = new ReadableStream({
     async start(ctl) {
       let sent = 0;
-      await Promise.allSettled(
+      if (quick) {
+        // Bright Data first, then OpenAlex, in that order.
+        for (const j of jobs) {
+          const b = await j.catch(() => null);
+          if (b) {
+            sent++;
+            ctl.enqueue(enc.encode(JSON.stringify(fresh(b)) + "\n"));
+          }
+        }
+      } else await Promise.allSettled(
         jobs.map((j) =>
           j.then((b) => {
             sent++;

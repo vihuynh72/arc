@@ -10,7 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { startMic } from "@/lib/client/audio";
 import { act, describe, preDecide, submitUtterance } from "@/lib/client/command";
 import { prefetchClip, speaker } from "@/lib/client/reader";
-import { askAudio, askEnd, askStart, audioState, chime, dropAnswer, playAnswer, say, stop, type AskHooks } from "@/lib/client/voice";
+import { answerText, askAudio, askEnd, askStart, audioState, chime, dropAnswer, playAnswer, say, stop, type AskHooks } from "@/lib/client/voice";
 
 const GREETING = "Arc. Hold Space and tell me what to study, or paste a link.";
 const STABLE_MS = 350; // interim words unchanged this long are pre-asked to Snap
@@ -82,6 +82,8 @@ export default function AskButton() {
     if (c) return runGemini(ask, c.name, c.args);
     console.info(`[arc-timing] ${ask.id} gemini audio played`);
     void playAnswer(ask.id);
+    // The spoken answer, also as static text for a sighted helper (the decision line is not aria-live).
+    void answerText(ask.id).then((a) => a && current.current === ask && setLine((l) => `${l} · Gemini: "${a}"`));
   };
 
   // Snap is sure: act now, drop Gemini's reply.

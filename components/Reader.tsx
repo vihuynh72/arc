@@ -131,7 +131,8 @@ export default function Reader({ items, paused, onTour }: Props) {
   // The page is never scrolled back and focus never moves. Once still for 450 ms the item is read, once.
   useEffect(() => {
     const L = live.current;
-    L.progUntil = performance.now() + 1000; // a new page may clamp the scroll position
+    const born = performance.now() + 1000;
+    L.progUntil = born; // a new page may clamp the scroll position
     const idle = () => L.paused || performance.now() < L.progUntil || !!document.activeElement?.closest("input, textarea, select, [contenteditable='true']");
     const follow = () => {
       L.raf = 0;
@@ -159,7 +160,8 @@ export default function Reader({ items, paused, onTour }: Props) {
         if (!idle() && L.index >= 0 && L.index !== L.settled) moveTo(L.index, { scroll: false });
       }, 450);
     };
-    const done = () => (L.progUntil = 0);
+    // The clamp's own scrollend must not lift the new-page guard early: that moved the cursor and cut the load line.
+    const done = () => void (performance.now() > born && (L.progUntil = 0));
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("scrollend", done);
     return () => {
