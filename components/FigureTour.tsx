@@ -3,12 +3,15 @@
 // buttons, folded into one closed <details> so a screen reader user meets one stop, not eight.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { pitch, pointLine, reading, seriesOfStop, stats, valueAt, xAtPointer } from "@/lib/chart";
-import { hitStop, nearestHint, stopLine } from "@/lib/cues";
+import { boxDistance, correction, guideTick, hitStop, keepGoing, nearestHint, nextLine, stopLine, towards } from "@/lib/cues";
 import type { Tour, TwinNode } from "@/lib/types";
-import { chime, getSpeed, prefetch, say, setSpeed, stop, tick, togglePause, tone } from "@/lib/client/voice";
+import { chime, getTourSpeed, prefetch, say, setTourSpeed, setTouring, stop, tick, togglePause, tone } from "@/lib/client/voice";
 
 const SHOW = new Set(["hand-fixed", "high"]);
-const POINTER_HINT = "You can also move your pointer over the picture to feel where each part is.";
+const POINTER_HINT = "You can also move your pointer over the picture: I will guide you to each part.";
+const ARRIVED = "Right here.";
+const clock = () => performance.now(); // guidance timing, read only in handlers and timers
+const beat = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const CHART_HINT = "Move your pointer across the chart to hear its shape, or hold Shift with the arrow keys to step through values.";
 const STILL_READING = "I am still reading the exact values. You can explore the layout now.";
 const VALUES_READY = "The values are ready. Hold Shift with the arrow keys to step through them, or move your pointer across the chart.";
@@ -22,7 +25,7 @@ export default function FigureTour({ node, onLeave }: { node: TwinNode; onLeave:
   const base = `${tour.overview} ${stops.length} stops. Press Right Arrow to begin.`;
   const intro = `${base} ${tour.stage === "quick" ? STILL_READING : hint}`;
   const [i, setI] = useState(-1); // -1: overview
-  const [speed, setSpeedState] = useState(getSpeed());
+  const [speed, setSpeedState] = useState(getTourSpeed());
   const [paused, setPaused] = useState(false);
   const run = useRef(0);
   const pad = useRef<HTMLDivElement>(null);
@@ -40,23 +43,57 @@ export default function FigureTour({ node, onLeave }: { node: TwinNode; onLeave:
   const rest = useRef(0);
   const talking = useRef(0);
   const hinting = useRef(0);
+  // Guided seeking (pictures, not charts): the stop the pointer is being talked onto, whether the pointer has been used in
+  // this tour, the pointer in picture units, the arrived stop whose box swallows movement while it is explained (and when
+  // that ends after leaving it), when a stop's own line started (no ticks over its first second), the tick timer, the last
+  // distance and since when it has grown, the last spoken correction, which run token is guidance speech, and pause.
+  const goal = useRef(0);
+  const guided = useRef(false);
+  const here = useRef<{ x: number; y: number } | null>(null);
+  const stuck = useRef(-1);
+  const loose = useRef(0);
+  const lineAt = useRef(-1e9);
+  const pace = useRef({ timer: 0, last: -1e9, due: 0 });
+  const trend = useRef({ d: -1, away: 0 });
+  const said = useRef(-1e9);
+  const guiding = useRef(0);
+  const still = useRef(false);
 
   const line = useCallback((k: number) => (k < 0 ? intro : stopLine(stops, k)), [intro, stops]);
+  const body = useCallback((k: number) => `${stops[k].label}. ${stops[k].says}`, [stops]);
 
+  // `lead` ("Right here.") replaces the stop's movement cue on a pointer arrival. Once the pointer has been used, a stop ends
+  // with the way to the next one, said only after the stop's own line.
   const speak = useCallback(
-    async (k: number, withChime: boolean) => {
+    async (k: number, withChime: boolean, lead = "") => {
       const my = ++run.current;
       talking.current = my;
       stop();
-      if (k + 1 < stops.length) prefetch(line(k + 1)); // buffer the next stop while this one plays
+      lineAt.current = performance.now();
+      if (k + 1 < stops.length) prefetch(guided.current ? body(k + 1) : line(k + 1)); // buffer the next stop while this one plays
       if (withChime && k >= 0) {
         await chime();
         if (my !== run.current) return;
       }
-      await say(line(k));
+      if (lead) {
+        await say(lead);
+        await beat(250); // a short beat after "Right here."
+        if (my !== run.current) return;
+      }
+      lineAt.current = performance.now();
+      await say(lead ? body(k) : line(k));
+      if (talking.current === my) talking.current = 0;
+      if (my !== run.current) return;
+      stuck.current = -1; // explained: guidance toward the next stop may start where the pointer is
+      if (k < 0 || !guided.current) return;
+      await beat(600); // let the line settle before the way on
+      if (my !== run.current) return;
+      talking.current = guiding.current = my;
+      said.current = performance.now() + 1000; // the way on is not cut by a correction straight away
+      await say(nextLine(stops, k + 1, here.current));
       if (talking.current === my) talking.current = 0;
     },
-    [line, stops.length],
+    [body, line, stops],
   );
 
   // The intro is spoken once on open; swapping in the full tour must not restart it or cut a sentence.
@@ -64,10 +101,12 @@ export default function FigureTour({ node, onLeave }: { node: TwinNode; onLeave:
   useEffect(() => {
     const r = run;
     pad.current?.focus();
+    setTouring(true);
     opening.current(-1, false);
     return () => {
       r.current++;
       stop();
+      setTouring(false);
     };
   }, []);
 
@@ -123,19 +162,36 @@ export default function FigureTour({ node, onLeave }: { node: TwinNode; onLeave:
   // Short labels are fetched up front so entering a part by pointer answers at once. After the speak effect: its stop() would cancel them.
   useEffect(() => {
     stops.forEach((s) => prefetch(s.label));
+    if (!chart) prefetch(ARRIVED);
+    const b = pace.current;
     return () => {
       cancelAnimationFrame(frame.current);
       clearTimeout(rest.current);
+      clearTimeout(b.timer);
     };
-  }, [stops]);
+  }, [stops, chart]);
+  useEffect(() => {
+    still.current = paused;
+  }, [paused]);
 
   const go = (k: number) => {
     const n = Math.max(0, Math.min(stops.length - 1, k));
+    goal.current = n + 1; // the stop after this one is what the pointer is guided to
+    stuck.current = -1;
+    clearTimeout(rest.current);
     setI(n);
     setPaused(false);
     pt.current = -1;
     setReadout("");
     speak(n, true);
+  };
+  const sayRate = (v: number) => {
+    setSpeedState(v);
+    const n = ++run.current;
+    talking.current = n;
+    say(`Speed ${v}.`).then(() => {
+      if (talking.current === n) talking.current = 0;
+    });
   };
   const actions = {
     next: () => go(i + 1),
@@ -144,8 +200,8 @@ export default function FigureTour({ node, onLeave }: { node: TwinNode; onLeave:
       setPaused(false);
       speak(i, false);
     },
-    faster: () => setSpeedState(setSpeed(speed + 0.25)),
-    slower: () => setSpeedState(setSpeed(speed - 0.25)),
+    faster: () => sayRate(setTourSpeed(speed + 0.25)),
+    slower: () => sayRate(setTourSpeed(speed - 0.25)),
     pause: () => setPaused(togglePause()),
     leave: () => {
       run.current++;
@@ -165,6 +221,7 @@ export default function FigureTour({ node, onLeave }: { node: TwinNode; onLeave:
       else if (name === "read") latest.current.repeat();
       else if (name === "stop") {
         run.current++;
+        stuck.current = -1;
         stop();
         setPaused(false);
       }
@@ -188,6 +245,13 @@ export default function FigureTour({ node, onLeave }: { node: TwinNode; onLeave:
     }
     const xv = chart && inside ? xAtPointer(chart, x, y) : null;
     if (chart && xv !== null) return scrub(xv);
+    // Charts keep their own exploration (scrubbing and the stop under the pointer); guided seeking is for pictures.
+    here.current = inside ? { x, y } : null;
+    if (!chart && inside && !guided.current) {
+      guided.current = true;
+      if (stops[goal.current]) prefetch(body(goal.current)); // the first arrival answers without waiting for the voice
+    }
+    if (!chart && guided.current && goal.current < stops.length) return guide(x, y, inside);
     const k = inside ? hitStop(stops, y, x) : -1;
     if (k >= 0 && k === over.current) return; // resting in the same part keeps its timer
     clearTimeout(rest.current);
@@ -272,6 +336,103 @@ export default function FigureTour({ node, onLeave }: { node: TwinNode; onLeave:
         if (talking.current === my) talking.current = 0;
       });
     }, 150);
+  };
+  // Guided seeking: ticks that quicken and rise as the pointer nears the next stop, a word when it drifts away or rests, and
+  // on entering the stop a chime, "Right here.", its line, then the way on. Other stops passed on the way stay quiet.
+  const guide = (x: number, y: number, inside: boolean) => {
+    const now = clock();
+    clearTimeout(rest.current);
+    if (!inside) {
+      stopBeat();
+      trend.current = { d: -1, away: 0 };
+      return;
+    }
+    const s = stuck.current;
+    if (s >= 0) {
+      // Just arrived: small movements inside the box, and the first 250 ms outside it, change nothing.
+      if (boxDistance(stops[s].box_2d, y, x) === 0) return void (loose.current = 0);
+      if (!loose.current) {
+        loose.current = now + 250;
+        window.setTimeout(() => (frame.current ||= requestAnimationFrame(explore)), 260);
+      }
+      if (now < loose.current) return;
+      stuck.current = -1;
+      loose.current = 0;
+    }
+    const g = goal.current;
+    const target = stops[g];
+    const d = boxDistance(target.box_2d, y, x);
+    if (d === 0) return arrive(g);
+    beatAt(d);
+    const tr = trend.current;
+    if (tr.d >= 0 && towards(tr.d, d)) tr.away = 0; // any move toward the target cancels a pending correction
+    else if (tr.d >= 0 && d > tr.d + 1) {
+      tr.away ||= now;
+      if (now - tr.away > 700 && sayGuide(correction(target.box_2d, y, x))) tr.away = now;
+    }
+    tr.d = d;
+    const k = hitStop(stops, y, x);
+    const later = (text: () => string, ms: number) => {
+      rest.current = window.setTimeout(() => {
+        if (!sayGuide(text())) later(text, 600); // a stop's line or a recent correction: try again shortly
+      }, ms);
+    };
+    if (k >= 0 && k !== g) later(() => `${stops[k].label.charAt(0).toUpperCase()}${stops[k].label.slice(1)}. ${nextLine(stops, g, { x, y })}`, 700);
+    else later(() => keepGoing(target.box_2d, y, x), 1200);
+  };
+  const arrive = (k: number) => {
+    stopBeat();
+    clearTimeout(rest.current);
+    goal.current = k + 1;
+    trend.current = { d: -1, away: 0 };
+    setI(k);
+    setPaused(false);
+    pt.current = -1;
+    setReadout("");
+    speak(k, true, ARRIVED).catch(() => null);
+    stuck.current = k; // after speak: it runs synchronously up to the chime
+    loose.current = 0;
+  };
+  // One soft tick per beat; the gap and pitch follow the distance at each beat, and moving closer brings the next one forward.
+  const pulse = () => {
+    const b = pace.current;
+    b.timer = 0;
+    const p = here.current;
+    const target = stops[goal.current];
+    if (!p || !target || stuck.current >= 0 || still.current) return;
+    const d = boxDistance(target.box_2d, p.y, p.x);
+    if (d === 0) return;
+    const { ms, hz } = guideTick(d);
+    const now = clock();
+    // Not over a stop's own line (its first second at least, and the whole of these short lines): words first.
+    if (now - lineAt.current >= 1000 && !(talking.current && talking.current !== guiding.current)) tick(hz, 30, 0.02);
+    b.last = now;
+    b.due = now + ms;
+    b.timer = window.setTimeout(pulse, ms);
+  };
+  const beatAt = (d: number) => {
+    const b = pace.current;
+    const due = Math.max(b.last + guideTick(d).ms, clock());
+    if (b.timer && due >= b.due) return;
+    clearTimeout(b.timer);
+    b.due = due;
+    b.timer = window.setTimeout(pulse, due - clock());
+  };
+  const stopBeat = () => {
+    clearTimeout(pace.current.timer);
+    pace.current.timer = 0;
+  };
+  // Guidance speech: at most one phrase per 1.5 s, never over a stop's own line, never while paused.
+  const sayGuide = (text: string) => {
+    const now = clock();
+    if (still.current || now - said.current < 1500 || (talking.current && talking.current !== guiding.current)) return false;
+    said.current = now;
+    const n = ++run.current;
+    talking.current = guiding.current = n;
+    say(text).then(() => {
+      if (talking.current === n) talking.current = 0;
+    });
+    return true;
   };
   const hintLater = (y: number, x: number, ms: number) => {
     const my = run.current;

@@ -1,7 +1,7 @@
 // Page-wide voice: one /ws/voice socket, one AudioContext, one thing playing at a time.
 // say(text) resolves when playback ends or is stopped. prefetch(text) buffers without playing.
-// Audio still streaming plays through Web Audio at 1x; complete audio plays through <audio> so
-// speed 1 to 2 keeps pitch. Never uses speechSynthesis.
+// Audio still streaming starts at once through Web Audio at 1x (speed never delays the first sound); complete audio
+// plays through <audio> at the current speed with pitch kept. A figure tour has its own speed. Never uses speechSynthesis.
 import { stopLine } from "@/lib/cues";
 import type { Twin } from "@/lib/types";
 import { b64ToPcm, wavBlob } from "./audio";
@@ -46,6 +46,9 @@ let token = 0;
 let endCurrent: (() => void) | undefined;
 let playingId: string | undefined;
 let speed = 1;
+let tourSpeed = 1.25;
+let touring = false;
+const rate = () => (touring ? tourSpeed : speed);
 let paused = false;
 
 function socket(): WebSocket {
@@ -193,10 +196,21 @@ function halt() {
 
 export function setSpeed(v: number) {
   speed = Math.min(2, Math.max(1, Math.round(v * 100) / 100));
-  if (el) el.playbackRate = speed;
+  if (el && !touring) el.playbackRate = speed;
   return speed;
 }
 export const getSpeed = () => speed;
+/** While a figure tour is open its lines play at the tour speed, kept apart from the reading voice's. */
+export function setTouring(on: boolean) {
+  touring = on;
+}
+/** The tour voice speed: 1 to 1.75 in steps of 0.25, 1.25 by default. */
+export function setTourSpeed(v: number) {
+  tourSpeed = Math.min(1.75, Math.max(1, Math.round(v * 4) / 4));
+  if (el && touring) el.playbackRate = tourSpeed;
+  return tourSpeed;
+}
+export const getTourSpeed = () => tourSpeed;
 /** The Web Audio context state, for the localhost test hook. */
 export const audioState = () => ctx?.state;
 
@@ -262,8 +276,8 @@ function play(e: Entry, fallback?: string): Promise<void> {
     const asFile = () => {
       e.wake.delete(step);
       if (!e.failed && !e.chunks.length) finish(); // a command, no spoken answer
-      else if (!e.failed) playEl(URL.createObjectURL(wavBlob(e.chunks, RATE)), speed, my, finish);
-      else if (fallback) playEl(fallback, speed, my, finish); // local Kokoro voice
+      else if (!e.failed) playEl(URL.createObjectURL(wavBlob(e.chunks, RATE)), rate(), my, finish);
+      else if (fallback) playEl(fallback, rate(), my, finish); // local Kokoro voice
       else finish();
     };
     let used = 0;
@@ -271,10 +285,9 @@ function play(e: Entry, fallback?: string): Promise<void> {
     let streaming = false;
     function step() {
       if (my !== token) return e.wake.delete(step);
-      if (!streaming && (e.done || e.failed || speed !== 1)) {
-        if (e.done || (e.failed && !e.chunks.length)) return asFile();
-        if (!e.failed) return; // speed-up waits for the whole clip
-      }
+      // Buffered or cached: the whole clip at the current speed. Still arriving: stream now at 1x, never wait for speed.
+      if (!streaming && (e.done || (e.failed && !e.chunks.length))) return asFile();
+      if (!e.chunks.length && !e.failed) return; // nothing to play yet
       streaming = true;
       ctx ??= new AudioContext();
       if (ctx.state === "suspended" && !paused) ctx.resume();
@@ -360,20 +373,26 @@ export function answerText(id: string, ms = 15000): Promise<string | null> {
   });
 }
 
-/** A short quiet tick (about 60 ms) on the page's AudioContext: pointer exploration marks the picture's edges with it. */
-export function tick(hz: number) {
+let ticking: OscillatorNode | undefined;
+
+/** A short quiet tick (default about 60 ms) on the page's AudioContext: pointer exploration marks the picture's edges with
+ * it, and guided seeking repeats a softer, shorter one. One tick oscillator at a time: a new tick cuts the last. */
+export function tick(hz: number, ms = 60, gain = 0.05) {
   if (paused) return;
   ctx ??= new AudioContext();
   if (ctx.state === "suspended") ctx.resume().catch(() => {});
   const t = ctx.currentTime;
-  const o = ctx.createOscillator();
+  try {
+    ticking?.stop();
+  } catch {}
+  const o = (ticking = ctx.createOscillator());
   const g = ctx.createGain();
   o.frequency.value = hz;
-  g.gain.setValueAtTime(0.05, t);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
+  g.gain.setValueAtTime(gain, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + ms / 1000);
   o.connect(g).connect(ctx.destination);
   o.start(t);
-  o.stop(t + 0.06);
+  o.stop(t + ms / 1000);
 }
 
 /** A short soft tone (about 80 ms, quieter than the chime) whose pitch carries a chart value while the student scrubs. */
