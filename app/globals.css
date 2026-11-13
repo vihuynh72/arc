@@ -1545,3 +1545,41 @@ body:has([data-tour]) .arc-ring {
   font-size: 0.9375rem;
   line-height: 1.4;
 }
+
+/* Tour keys: one focus stop that says the keys are on; the same actions as buttons, folded away in one details. */
+[data-tour] [role="application"] {
+  display: block !important;
+  padding: 0.625rem 0.875rem;
+  border: 1px dashed var(--hair);
+  border-radius: 10px;
+  color: var(--muted, #534d46);
+  font-variant-numeric: tabular-nums;
+}
+[data-tour] [role="application"]:focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 2px;
+  border-style: solid;
+}
+[data-tour] details > summary {
+  cursor: pointer;
+  min-height: 2.5rem;
+  padding: 0.5rem 0;
+}
+[data-tour] details > div {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+  gap: 0.5rem;
+  align-items: center;
+}
+[data-tour] details button {
+  min-height: 2.5rem;
+  padding: 0.5rem 0.75rem;
+  white-space: nowrap;
+}
+[data-tour] details span {
+  justify-self: center;
+  color: var(--muted);
+}
+[data-tour] [data-readout] {
+  font-weight: 600;
+}

@@ -1,23 +1,32 @@
 "use client";
-// Guided spoken tour of one figure. Keys live in one role="application" bar; every key is also a button.
+// Guided spoken tour of one figure. Keys live on one focusable role="application" region; the same actions are also
+// buttons, folded into one closed <details> so a screen reader user meets one stop, not eight.
 import { useCallback, useEffect, useRef, useState } from "react";
+import { pitch, pointLine, reading, seriesOfStop, stats, valueAt, xAtPointer } from "@/lib/chart";
 import { hitStop, nearestHint, stopLine } from "@/lib/cues";
 import type { TwinNode } from "@/lib/types";
-import { chime, getSpeed, prefetch, say, setSpeed, stop, tick, togglePause } from "@/lib/client/voice";
+import { chime, getSpeed, prefetch, say, setSpeed, stop, tick, togglePause, tone } from "@/lib/client/voice";
 
 const SHOW = new Set(["hand-fixed", "high"]);
 const POINTER_HINT = "You can also move your pointer over the picture to feel where each part is.";
+const CHART_HINT = "Move your pointer across the chart to hear its shape, or hold Shift with the arrow keys to step through values.";
 
 export default function FigureTour({ node, onLeave }: { node: TwinNode; onLeave: () => void }) {
   const tour = node.tour!;
   const stops = tour.stops;
+  const chart = tour.chart;
+  const hint = chart ? CHART_HINT : POINTER_HINT;
   const base = `${tour.overview} ${stops.length} stops. Press Right Arrow to begin.`;
-  const intro = `${base} ${POINTER_HINT}`;
+  const intro = `${base} ${hint}`;
   const [i, setI] = useState(-1); // -1: overview
   const [speed, setSpeedState] = useState(getSpeed());
   const [paused, setPaused] = useState(false);
   const run = useRef(0);
-  const first = useRef<HTMLButtonElement>(null);
+  const pad = useRef<HTMLDivElement>(null);
+  // Chart scrubbing: when the last tone played, the point Shift+Arrow is on, and the reading last spoken (shown on screen too).
+  const toned = useRef(0);
+  const pt = useRef(-1);
+  const [readout, setReadout] = useState("");
   // Pointer exploration: the latest pointer position, the rAF handle, whether it is inside the image, the stop under it,
   // the one rest timer (full line, or direction hint), and which run token is speaking (a hint never talks over a line).
   const img = useRef<HTMLImageElement>(null);
@@ -49,7 +58,7 @@ export default function FigureTour({ node, onLeave }: { node: TwinNode; onLeave:
 
   useEffect(() => {
     const r = run;
-    first.current?.focus();
+    pad.current?.focus();
     speak(-1, false);
     return () => {
       r.current++;
@@ -70,6 +79,8 @@ export default function FigureTour({ node, onLeave }: { node: TwinNode; onLeave:
     const n = Math.max(0, Math.min(stops.length - 1, k));
     setI(n);
     setPaused(false);
+    pt.current = -1;
+    setReadout("");
     speak(n, true);
   };
   const actions = {
@@ -121,6 +132,8 @@ export default function FigureTour({ node, onLeave }: { node: TwinNode; onLeave:
       within.current = inside;
       tick(inside ? 330 : 220);
     }
+    const xv = chart && inside ? xAtPointer(chart, x, y) : null;
+    if (chart && xv !== null) return scrub(xv);
     const k = inside ? hitStop(stops, y, x) : -1;
     if (k >= 0 && k === over.current) return; // resting in the same part keeps its timer
     clearTimeout(rest.current);
@@ -155,6 +168,57 @@ export default function FigureTour({ node, onLeave }: { node: TwinNode; onLeave:
       }, Math.max(0, 700 - (performance.now() - t0)));
     })();
   };
+  // Inside a chart's plot area the horizontal position is the x value: a quiet tone whose pitch follows the active series
+  // (the series stop the student is on, else the first), and after 600 ms at rest the values there in words.
+  const scrub = (xv: number) => {
+    clearTimeout(rest.current);
+    over.current = -1;
+    if (talking.current) {
+      run.current++; // moving cancels whatever was being said
+      stop();
+      talking.current = 0;
+    }
+    const si = seriesOfStop(chart!, stops[i]);
+    const s = chart!.series[si];
+    const now = performance.now();
+    if (s && now - toned.current >= 83) {
+      toned.current = now;
+      const st = stats(s.points);
+      tone(pitch(valueAt(s.points, xv), st.min.y, st.max.y));
+    }
+    const my = run.current;
+    rest.current = window.setTimeout(() => {
+      if (my !== run.current) return;
+      const n = ++run.current;
+      talking.current = n;
+      const text = reading(chart!, xv, si);
+      setReadout(text);
+      say(text).then(() => {
+        if (talking.current === n) talking.current = 0;
+      });
+    }, 600);
+  };
+  // Shift+Right/Left step through the active series' points, Home/End jump to its ends: a tone, then the value in words.
+  const step = (key: string) => {
+    const si = seriesOfStop(chart!, stops[i]);
+    const s = chart!.series[si];
+    if (!s) return;
+    const last = s.points.length - 1;
+    const k = key === "Home" ? 0 : key === "End" ? last : Math.max(0, Math.min(last, pt.current < 0 ? 0 : pt.current + (key === "ArrowRight" ? 1 : -1)));
+    pt.current = k;
+    const st = stats(s.points);
+    tone(pitch(s.points[k].y, st.min.y, st.max.y), 120);
+    const text = pointLine(chart!, si, k);
+    setReadout(text);
+    const my = ++run.current;
+    talking.current = my;
+    window.setTimeout(() => {
+      if (my !== run.current) return;
+      say(text).then(() => {
+        if (talking.current === my) talking.current = 0;
+      });
+    }, 150);
+  };
   const hintLater = (y: number, x: number, ms: number) => {
     const my = run.current;
     rest.current = window.setTimeout(() => {
@@ -188,6 +252,14 @@ export default function FigureTour({ node, onLeave }: { node: TwinNode; onLeave:
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.altKey || e.ctrlKey || e.metaKey) return;
+    // Enter and Space on a button or the summary inside the details keep their own meaning.
+    if ((e.key === "Enter" || e.key === " ") && e.target !== pad.current) return;
+    if (chart && ((e.shiftKey && (e.key === "ArrowRight" || e.key === "ArrowLeft")) || e.key === "Home" || e.key === "End")) {
+      e.preventDefault();
+      stop();
+      setPaused(false);
+      return step(e.key);
+    }
     const a = keys[e.key];
     if (a !== "pause" && e.key !== "Tab" && e.key !== " ") {
       run.current++; // any key cancels current audio at once
@@ -204,7 +276,7 @@ export default function FigureTour({ node, onLeave }: { node: TwinNode; onLeave:
   const src = tour.image ?? node.image?.url;
 
   return (
-    <section aria-label={`Figure tour: ${tour.title}`}>
+    <section aria-label={`Figure tour: ${tour.title}`} onKeyDown={onKeyDown}>
       <div
         onPointerMove={track}
         onPointerDown={track}
@@ -243,26 +315,39 @@ export default function FigureTour({ node, onLeave }: { node: TwinNode; onLeave:
         ) : (
           base
         )}
+        {readout && (
+          <>
+            <br />
+            <span data-readout>{readout}</span>
+          </>
+        )}
       </p>
-      <small>{POINTER_HINT}</small>
+      <small>{hint}</small>
 
       <div
+        ref={pad}
+        tabIndex={0}
         role="application"
-        aria-label="Figure tour. Right and Left Arrow move between stops, Enter repeats, Up and Down change speed, P pauses, Escape leaves."
-        onKeyDown={onKeyDown}
-        style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}
+        aria-label={`Figure tour keys. Right and Left Arrow: next and previous stop. Enter: repeat. Up and Down Arrow: speed. P: pause. Escape: leave.${
+          chart ? " Shift with Right or Left Arrow: step through the values of the current series. Home and End: first and last value." : ""
+        }`}
       >
-        <button onClick={actions.prev}>Previous</button>
-        <button ref={first} onClick={actions.next}>
-          Next
-        </button>
-        <button onClick={actions.repeat}>Repeat</button>
-        <button onClick={actions.slower}>Slower</button>
-        <button onClick={actions.faster}>Faster</button>
-        <span style={{ fontSize: "0.9rem" }}>Speed {speed}x</span>
-        <button onClick={actions.pause}>{paused ? "Resume" : "Pause"}</button>
-        <button onClick={actions.leave}>Leave tour</button>
+        Tour keys are on. Speed {speed}x{paused ? ", paused" : ""}.
       </div>
+
+      <details>
+        <summary>Buttons for these controls</summary>
+        <div>
+          <button onClick={actions.prev}>Previous</button>
+          <button onClick={actions.next}>Next</button>
+          <button onClick={actions.repeat}>Repeat</button>
+          <button onClick={actions.slower}>Slower</button>
+          <button onClick={actions.faster}>Faster</button>
+          <span>Speed {speed}x</span>
+          <button onClick={actions.pause}>{paused ? "Resume" : "Pause"}</button>
+          <button onClick={actions.leave}>Leave tour</button>
+        </div>
+      </details>
     </section>
   );
 }

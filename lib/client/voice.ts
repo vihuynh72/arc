@@ -361,3 +361,23 @@ export function tick(hz: number) {
   o.start(t);
   o.stop(t + 0.06);
 }
+
+/** A short soft tone (about 80 ms, quieter than the chime) whose pitch carries a chart value while the student scrubs. */
+export function tone(hz: number, ms = 80) {
+  if (paused) return;
+  ctx ??= new AudioContext();
+  if (ctx.state === "suspended") ctx.resume().catch(() => {});
+  const t = ctx.currentTime;
+  const end = t + ms / 1000;
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  o.type = "sine";
+  o.frequency.value = hz;
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(0.04, t + 0.015);
+  g.gain.setValueAtTime(0.04, end - 0.03);
+  g.gain.linearRampToValueAtTime(0, end);
+  o.connect(g).connect(ctx.destination);
+  o.start(t);
+  o.stop(end + 0.01);
+}

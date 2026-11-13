@@ -17,6 +17,14 @@ export interface Tour {
   source?: string;
   image?: string; // local /public path when the figure is a prepared fixture
   stops: TourStop[];
+  /** Charts only: data read by the chart model and checked in code; the pointer scrubs it. Axis values in axis units. */
+  chart?: {
+    type: string;
+    x: { label: string; unit: string | null; min: number | null; max: number | null };
+    y: { label: string; unit: string | null; min: number | null; max: number | null };
+    plot: Box;
+    series: { name: string; color?: string; points: { x: number; y: number; label?: string }[] }[];
+  };
 }
 
 export type NodeKind = "section" | "figure" | "segment";
