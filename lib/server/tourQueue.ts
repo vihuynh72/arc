@@ -2,10 +2,10 @@
 // and app/api/tour (serve, status, prioritise). Two lanes: the light model (2 at a time) builds quick tours in page order;
 // the heavy chart chain (1 at a time) then reads each chart's data. State lives on globalThis (one long-lived process).
 import { cachedTour, fullTour, quickTour } from "./tour";
-import type { Tour } from "../types";
+import type { Tour, Twin } from "../types";
 
 export type State = "none" | "queued" | "building" | "quick" | "full" | "failed";
-type Job = { state: State; kind?: string; fullFailed?: boolean; quick?: Promise<Tour | null>; full?: Promise<Tour | null> };
+type Job = { state: State; context?: string; kind?: string; fullFailed?: boolean; quick?: Promise<Tour | null>; full?: Promise<Tour | null> };
 
 type Queue = { jobs: Map<string, Job>; light: string[]; heavy: string[]; busy: { light: number; heavy: number }; calls: string[] };
 const g = globalThis as unknown as { __arcTours?: Queue };
@@ -21,12 +21,12 @@ const job = (image: string) => {
 };
 
 /** One timeout and one retry around a stage; a failure is one log line and is remembered (no retry loop). */
-async function attempt(image: string, lane: "light" | "heavy", fn: (u: string) => Promise<Tour | null>): Promise<Tour | null> {
+async function attempt(image: string, lane: "light" | "heavy", fn: (u: string, context?: string) => Promise<Tour | null>): Promise<Tour | null> {
   const ms = lane === "light" ? 30_000 : 150_000;
   for (let k = 0; k < 2; k++) {
     const t = Date.now();
     try {
-      const tour = await Promise.race([fn(image), new Promise<never>((_, no) => setTimeout(() => no(new Error(`timed out after ${ms} ms`)), ms))]);
+      const tour = await Promise.race([fn(image, Q.jobs.get(image)?.context), new Promise<never>((_, no) => setTimeout(() => no(new Error(`timed out after ${ms} ms`)), ms))]);
       Q.calls.push(`${lane} ${tour ? "ok" : "none"} ${Date.now() - t}ms ${image.split("/").pop()}`);
       return tour;
     } catch (e) {
@@ -86,11 +86,28 @@ function pump() {
   }
 }
 
-/** Queue the first 30 figures of a page, in page order, skipping cached and known ones. Returns at once. */
-export function warmPage(images: string[]) {
+/** Each figure's caption plus up to about 600 characters of the paragraphs that mention it ("Figure 20", "Fig. 20"). */
+export function figureContexts(twin: Twin): Record<string, string> {
+  const out: Record<string, string> = {};
+  const texts = twin.nodes.filter((n) => n.kind !== "figure").map((n) => n.text);
+  for (const n of twin.nodes) {
+    if (n.kind !== "figure" || !n.image) continue;
+    const caption = [n.heading, n.image.alt, n.text].filter(Boolean).join(" ").trim();
+    const no = /\b(?:figure|fig\.?)\s*(\d+)/i.exec(caption)?.[1];
+    const near = no ? texts.filter((t) => new RegExp(`\\b(?:figure|fig\\.?)\\s*${no}\\b`, "i").test(t)).join(" ").slice(0, 600) : "";
+    const ctx = [caption && `Caption: ${caption.slice(0, 300)}`, near && `Text: ${near}`].filter(Boolean).join("\n");
+    if (ctx) out[n.image.url] = ctx;
+  }
+  return out;
+}
+
+/** Queue the first 30 figures of a page, in page order, skipping cached and known ones. Returns at once. `contexts` (from
+ * figureContexts) gives the vision model the page's caption and text for each figure. */
+export function warmPage(images: string[], contexts: Record<string, string> = {}) {
   void (async () => {
     for (const image of [...new Set(images)].slice(0, MAX_FIGURES)) {
-      if (Q.jobs.has(image)) continue;
+      if (contexts[image]) job(image).context ??= contexts[image];
+      if (Q.jobs.get(image)?.state && Q.jobs.get(image)!.state !== "none") continue;
       const have = await cachedTour(image);
       const j = job(image);
       if (have) {

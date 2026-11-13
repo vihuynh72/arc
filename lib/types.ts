@@ -22,10 +22,13 @@ export interface Tour {
   /** Charts only: data read by the chart model and checked in code; the pointer scrubs it. Axis values in axis units. */
   chart?: {
     type: string;
-    x: { label: string; unit: string | null; min: number | null; max: number | null };
-    y: { label: string; unit: string | null; min: number | null; max: number | null };
+    x: { label: string; unit: string | null; min: number | null; max: number | null; scale?: "linear" | "log"; ticks?: [number, number] };
+    y: { label: string; unit: string | null; min: number | null; max: number | null; scale?: "linear" | "log"; ticks?: [number, number] };
     plot: Box;
-    series: { name: string; color?: string; points: { x: number; y: number; label?: string }[] }[];
+    series: { name: string; color?: string; points: { x: number; y: number; label?: string; printed?: boolean }[] }[];
+    /** Bar charts read per category: the pointer snaps to the nearest category (series[0] is "Total" on a stacked chart). */
+    categories?: string[];
+    stacked?: boolean;
   };
 }
 
