@@ -1,6 +1,6 @@
 // Browser-side reading voice for Reader.tsx and Twin.tsx. Speech is Kokoro audio from /api/speak, never speechSynthesis.
 import type { TwinNode } from "@/lib/types";
-import { say as sayLive, stop as stopLive } from "./voice";
+import { kokoro, prefetch as prefetchLive, say as sayLive, stop as stopLive } from "./voice";
 
 export const VOICE = "af_bella";
 const clipUrl = (text: string) => `/api/speak?text=${encodeURIComponent(text)}&voice=${VOICE}`;
@@ -79,11 +79,15 @@ export function said(text: string) {
   window.dispatchEvent(new CustomEvent("arc:said", { detail: { text } }));
 }
 
+const learn = (r: Response) => void (r.headers.get("x-arc-kokoro") === "off" && (kokoro.off = true));
+
 async function fetchClip(text: string, signal: AbortSignal): Promise<string | null> {
   for (let tries = 0; tries < 2; tries++) {
     try {
       const r = await fetch(clipUrl(text), { signal });
       if (r.ok) return URL.createObjectURL(await r.blob());
+      learn(r);
+      return null; // an answer that is not a clip (off, busy, failed): the caller uses the Live voice at once
     } catch {
       if (signal.aborted) return null;
     }
@@ -98,7 +102,7 @@ const PATIENCE_AFTER_MISS = 1200;
 const SLOW = Symbol("slow");
 
 /** Ask the server to make (and cache) a clip ahead of time. */
-export const prefetchClip = (text: string) => void fetch(clipUrl(text)).catch(() => {});
+export const prefetchClip = (text: string) => void (!kokoro.off && fetch(clipUrl(text)).then(learn, () => {}));
 
 class Speaker {
   rate = 1;
@@ -122,19 +126,26 @@ class Speaker {
     const clips: Promise<string | null>[] = [];
     const get = (i: number) => (i < chunks.length ? (clips[i] ??= fetchClip(chunks[i], ctl.signal)) : null);
     for (let i = 0; i < chunks.length && mine === this.gen; i++) {
-      get(i);
-      get(i + 1);
-      get(i + 2);
-      const url = await Promise.race([clips[i], new Promise<typeof SLOW>((r) => setTimeout(r, this.patience, SLOW))]);
-      if (mine !== this.gen) break;
-      if (url === SLOW) {
-        // This chunk goes to the Gemini voice and the Kokoro request keeps running, so the clip is cached for next time.
-        console.info("[arc-voice] kokoro slow, used live voice");
-        this.patience = PATIENCE_AFTER_MISS;
+      let url: string | null | typeof SLOW = null;
+      if (!kokoro.off) {
+        get(i);
+        get(i + 1);
+        get(i + 2);
+        url = await Promise.race([clips[i], new Promise<typeof SLOW>((r) => setTimeout(r, this.patience, SLOW))]);
+        if (mine !== this.gen) break;
+      }
+      if (url && url !== SLOW) await this.play(url);
+      else {
+        // This chunk goes to the Gemini voice. When slow, the Kokoro request keeps running so the clip is cached for next time.
+        if (url === SLOW) {
+          console.info("[arc-voice] kokoro slow, used live voice");
+          this.patience = PATIENCE_AFTER_MISS;
+        } else console.info("[arc-voice] no kokoro clip, used live voice");
+        if (kokoro.off && i + 1 < chunks.length) prefetchLive(chunks[i + 1]); // one ahead: Live costs a round trip per chunk
         this.live = true;
         await sayLive(chunks[i]);
         this.live = false;
-      } else if (url) await this.play(url);
+      }
     }
     for (const c of clips) void c.then((u) => u && URL.revokeObjectURL(u));
   }

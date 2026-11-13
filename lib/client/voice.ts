@@ -8,6 +8,9 @@ import { b64ToPcm, wavBlob } from "./audio";
 
 const RATE = 24000;
 
+/** Set once /api/speak answers with x-arc-kokoro: off. The host has no local voice, so nothing asks it again this session. */
+export const kokoro = { off: false };
+
 interface Entry {
   id: string;
   key: string; // the text, or the ask id
@@ -132,7 +135,7 @@ export function prefetch(text: string) {
 
 /** Speaks text; resolves when it finishes or is stopped. */
 export function say(text: string): Promise<void> {
-  return play(request(text.trim()), `/api/speak?text=${encodeURIComponent(text.trim())}`);
+  return play(request(text.trim()), kokoro.off ? undefined : `/api/speak?text=${encodeURIComponent(text.trim())}`);
 }
 
 /** Stops whatever is playing, at once. */
