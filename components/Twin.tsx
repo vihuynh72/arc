@@ -1,6 +1,7 @@
 "use client";
 // The whole page below the header: status line, the twin, the reading cursor. Mounted by app/page.tsx.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Landing from "@/components/Landing";
 import LivePanel from "@/components/LivePanel";
 import Reader from "@/components/Reader";
 import Nodes from "@/components/twin/Nodes";
@@ -209,15 +210,7 @@ export default function Twin() {
             <Nodes nodes={twin.nodes} pageUrl={twin.source.kind === "page" ? twin.source.url : undefined} tourId={tourId} onTour={(n) => void startTour(n)} onLeave={leaveTour} />
           </article>
         ) : (
-          <>
-            <h1>Arc</h1>
-            <p>Things to try:</p>
-            <ul>
-              <li>Say: find a paper about knee rehabilitation.</li>
-              <li>Paste the link to a study page, such as https://www.mdpi.com/1424-8220/24/6/1935</li>
-              <li>Paste a YouTube link, and Arc outlines the video.</li>
-            </ul>
-          </>
+          <Landing />
         )}
       </div>
       {/* A direct child of <main>, so on wide screens it takes the right column (app/globals.css). */}

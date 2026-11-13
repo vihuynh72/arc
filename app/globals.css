@@ -894,3 +894,596 @@ figure figure figcaption {
 main > .arc-live::before {
   display: none;
 }
+
+/* ---------- S-landing: landing state and working-screen polish ----------
+   New pairs: ink #25211D on white 16.0:1; muted #534D46 on white 8.3:1; ring #1A56C4 on bg 6.25:1 (numerals);
+   kbd edge #857B70 on white 4.2:1 (non-text, needs 3:1). Everything else reuses the pairs listed at the top. */
+
+/* Header: the Ask pill sits level with the input, same height. */
+header > .ask > button,
+header > button {
+  min-height: 3rem;
+  padding-inline: 1.5rem;
+}
+
+@media (min-width: 68.75rem) {
+  header > .ask {
+    align-self: start;
+    margin-top: 1.5rem; /* label (1rem) + gap (0.5rem): level with the input */
+  }
+}
+
+/* Status: a calm line with a small cobalt dot, not a debug label. */
+.status {
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.375rem;
+  color: var(--muted);
+  padding: 0.875rem 0;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+}
+
+.status::before {
+  content: "" / "";
+  display: inline-block;
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--ring);
+}
+
+.elapsed {
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ----- Landing (only while nothing is loaded) ----- */
+
+body:has(.landing) header {
+  padding-top: 3rem;
+  padding-bottom: 2.5rem;
+  row-gap: 1rem;
+}
+
+body:has(.landing) header > .brand {
+  font-size: 1.75rem;
+}
+
+body:has(.landing) header > .brand + p {
+  font-size: clamp(2.75rem, 1.6rem + 4.2vw, 5.5rem);
+  line-height: 0.98;
+  letter-spacing: -0.03em;
+  max-width: 14ch;
+  margin-bottom: 1rem;
+}
+
+body:has(.landing) header input {
+  min-height: 3.5rem;
+  font-size: 1.125rem;
+  padding-inline: 1.5rem;
+  box-shadow: var(--shadow);
+}
+
+body:has(.landing) header > .ask > button {
+  min-height: 3.5rem;
+  padding-inline: 1.75rem;
+  font-size: 0.9375rem;
+}
+
+@media (min-width: 68.75rem) {
+  body:has(.landing) header {
+    position: static;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "brand brand"
+      "line line"
+      "cmd ask";
+    padding-top: 4.5rem;
+    padding-bottom: 3.5rem;
+  }
+  body:has(.landing) header > .brand + p {
+    max-width: 14ch;
+  }
+  body:has(.landing) header > .ask {
+    margin-top: 1.5rem;
+  }
+  main > #content:has(.landing) {
+    grid-column: 1 / -1;
+  }
+}
+
+#content:has(.landing) {
+  padding-bottom: 2rem;
+}
+
+.landing h1 {
+  font-size: clamp(2.25rem, 1.6rem + 2.2vw, 3.5rem);
+  line-height: 1.04;
+  margin: 0 0 1.5rem;
+  max-width: 18ch;
+}
+
+.landing h1 em {
+  font-style: italic;
+}
+
+.landing-lede {
+  font-size: 1.25rem;
+  line-height: 1.875rem;
+  max-width: 34rem;
+  margin: 0;
+}
+
+.landing-hero {
+  display: grid;
+  gap: 3rem;
+  align-items: center;
+  padding: 3.5rem 0 4.5rem;
+  border-bottom: 1px solid var(--hair);
+}
+
+/* The product's own idea, in miniature: a ring gliding down four lines of a page. Decorative. */
+.landing-demo {
+  position: relative;
+  padding: 1.5rem 1.75rem;
+  background: #fff;
+  border: 1px solid var(--hair);
+  border-radius: 20px;
+  box-shadow: var(--shadow);
+  max-width: 26rem;
+}
+
+.landing-demo span {
+  display: block;
+  height: 3rem;
+}
+
+.landing-demo span::before {
+  content: "";
+  display: block;
+  margin-top: 1.125rem;
+  height: 0.75rem;
+  border-radius: 9999px;
+  background: var(--hair);
+}
+
+.landing-demo span:nth-child(1)::before {
+  width: 55%;
+  height: 1rem;
+  margin-top: 1rem;
+  background: #cfc6b9;
+}
+.landing-demo span:nth-child(2)::before {
+  width: 92%;
+}
+.landing-demo span:nth-child(3)::before {
+  width: 78%;
+}
+.landing-demo span:nth-child(4)::before {
+  width: 64%;
+}
+
+.landing-demo i {
+  position: absolute;
+  left: 0.875rem;
+  right: 0.875rem;
+  top: 1.75rem;
+  height: 2.5rem;
+  border: 4px solid var(--ring);
+  border-radius: 12px;
+  background: rgba(66, 120, 172, 0.08);
+  box-shadow:
+    0 0 0 3px rgba(26, 86, 196, 0.14),
+    0 0 24px 4px rgba(26, 86, 196, 0.25);
+  animation: arc-sweep 10s var(--ease) infinite;
+}
+
+@keyframes arc-sweep {
+  0%,
+  18% {
+    top: 1.75rem;
+  }
+  25%,
+  43% {
+    top: 4.75rem;
+  }
+  50%,
+  68% {
+    top: 7.75rem;
+  }
+  75%,
+  93% {
+    top: 10.75rem;
+  }
+  100% {
+    top: 1.75rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-demo i {
+    animation: none;
+  }
+}
+
+.landing-block {
+  display: grid;
+  gap: 1.25rem;
+  padding: 3rem 0;
+  border-bottom: 1px solid var(--hair);
+}
+
+.landing-block h2 {
+  font-size: clamp(1.75rem, 1.4rem + 1vw, 2.25rem);
+  margin: 0;
+}
+
+.landing ul,
+.landing ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.landing-keys li {
+  display: grid;
+  gap: 0.75rem 1.5rem;
+  align-items: center;
+  padding: 1rem 0;
+  border-top: 1px solid var(--hair);
+}
+
+.landing-keys li:first-child,
+.landing-try li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.5rem;
+  height: 2.5rem;
+  padding: 0 0.75rem;
+  font-family: var(--sans);
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--edge);
+  border-bottom-width: 3px;
+  border-radius: 10px;
+}
+
+.landing-try li {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 1.5rem;
+  line-height: 1.3;
+  padding: 0.875rem 0;
+  border-top: 1px solid var(--hair);
+}
+
+.landing-try li::before {
+  content: "\201C" / "";
+}
+.landing-try li::after {
+  content: "\201D" / "";
+}
+
+.landing-how {
+  display: grid;
+  gap: 2rem;
+  counter-reset: arc-how;
+}
+
+.landing-how li {
+  counter-increment: arc-how;
+  font-size: 0.9375rem;
+  line-height: 1.5rem;
+  color: var(--muted);
+}
+
+.landing-how li::before {
+  content: counter(arc-how, decimal-leading-zero) / "";
+  display: block;
+  margin-bottom: 0.5rem;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 1.75rem;
+  line-height: 1;
+  color: var(--ring);
+}
+
+.landing-how strong {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.landing-foot {
+  margin: 0;
+  padding: 2rem 0 0;
+  font-size: 0.875rem;
+  line-height: 1.375rem;
+  color: var(--muted);
+}
+
+@media (min-width: 48rem) {
+  .landing-keys li {
+    grid-template-columns: 11rem minmax(0, 1fr);
+  }
+  .landing-how {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 68.75rem) {
+  .landing-hero {
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+    gap: 4rem;
+  }
+  .landing-demo {
+    justify-self: end;
+    width: 100%;
+  }
+  .landing-block {
+    grid-template-columns: 18rem minmax(0, 1fr);
+    gap: 4rem;
+    align-items: baseline;
+  }
+}
+
+/* ----- Working screens ----- */
+
+#content article > h1 {
+  margin-top: 3rem;
+}
+
+/* Video outline: timestamps as quiet tabular labels; "on screen" set apart from what is said. */
+.stamp {
+  margin: 0 0 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.shown {
+  margin: 0.25rem 0 0.5rem;
+  padding: 0.875rem 1.125rem;
+  background: var(--surface);
+  border-left: 3px solid var(--ring);
+  border-radius: 4px 12px 12px 4px;
+  color: var(--ink);
+}
+
+/* Search results: tighter editorial rows. */
+#content section[aria-labelledby="results-title"] > ol {
+  margin: 1.5rem 0 0;
+}
+
+#content section[aria-labelledby="results-title"] > ol > li {
+  padding: 2rem 0 1.5rem;
+}
+
+#content li[data-node-id] > p:first-of-type {
+  color: var(--muted);
+  max-width: 38rem;
+}
+
+#content li[data-node-id] > p:last-child {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin: 0;
+}
+
+/* Figure tour: the stop line is the loudest text in the card. */
+[data-tour] section > p {
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+  font-weight: 500;
+  background: #fff;
+  border: 1px solid var(--hair);
+  border-left: 4px solid var(--ring);
+  border-radius: 6px 16px 16px 6px;
+}
+
+/* Live page: framed like a quiet browser window. */
+.arc-live {
+  padding: 0;
+  overflow: hidden;
+}
+
+main > .arc-live::before {
+  content: "" / "";
+  display: block;
+  height: 2.25rem;
+  padding: 0;
+  margin: 0;
+  border-bottom: 1px solid var(--hair);
+  background:
+    radial-gradient(circle, #cfc6b9 0.3rem, transparent 0.32rem) 1rem center / 0.75rem 0.75rem no-repeat,
+    radial-gradient(circle, #cfc6b9 0.3rem, transparent 0.32rem) 2rem center / 0.75rem 0.75rem no-repeat,
+    radial-gradient(circle, #cfc6b9 0.3rem, transparent 0.32rem) 3rem center / 0.75rem 0.75rem no-repeat,
+    var(--surface);
+}
+
+@media (min-width: 68.75rem) {
+  main > .arc-live::before {
+    display: block;
+  }
+}
+
+.arc-live > section {
+  padding: 1rem 1.25rem 1.25rem;
+}
+
+#live-title {
+  font-family: var(--sans) !important;
+  font-size: 0.75rem !important;
+  font-weight: 500;
+  line-height: 1rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 0.75rem !important;
+}
+
+.arc-live section > p {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.arc-live section > p button {
+  min-height: 2.25rem;
+  padding: 0.375rem 1rem;
+  font-size: 0.8125rem;
+}
+
+/* Reader bar: Previous and Next carry the weight; the rest stay quiet. */
+.reader {
+  padding: 0.75rem 0.875rem;
+}
+
+.reader-pos {
+  font-variant-numeric: tabular-nums;
+}
+
+.reader-buttons button:nth-child(-n + 2) {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--bg);
+}
+
+.reader-buttons button:nth-child(-n + 2):hover {
+  background: #3b352f;
+}
+
+.reader-buttons button:nth-child(n + 3) {
+  background: transparent;
+}
+
+.reader-buttons button:nth-child(n + 3):hover {
+  background: var(--surface);
+}
+
+/* Section labels: hairline eyebrow above each landing heading; one italic word per heading. */
+.landing-block h2 em {
+  font-style: italic;
+}
+
+.landing-block h2::before {
+  display: block;
+  margin-bottom: 1rem;
+  padding-left: 2.75rem;
+  background: linear-gradient(var(--muted), var(--muted)) left center / 2rem 1px no-repeat;
+  font-family: var(--sans);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.landing-block:nth-of-type(2) h2::before {
+  content: "Keys" / "";
+}
+.landing-block:nth-of-type(3) h2::before {
+  content: "Voice" / "";
+}
+.landing-block:nth-of-type(4) h2::before {
+  content: "Under the hood" / "";
+}
+
+@media (min-width: 68.75rem) {
+  .landing-block {
+    padding: 4.5rem 0;
+  }
+  .landing-block h2 {
+    position: sticky;
+    top: 2rem;
+    align-self: start;
+  }
+}
+
+kbd {
+  padding: 0 0.625rem;
+}
+
+.landing-block h2 {
+  font-size: clamp(2rem, 1.4rem + 1.6vw, 3rem);
+}
+
+@media (min-width: 48rem) {
+  .landing-keys li {
+    grid-template-columns: 12.5rem minmax(0, 1fr);
+  }
+}
+
+/* The live view's own <figure> is a plain frame, not another card. */
+.arc-live figure {
+  display: block;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.arc-live figure img {
+  border-radius: 10px;
+}
+
+.arc-live figcaption {
+  margin-top: 0.75rem;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+/* Search results on wide screens: the heading holds the left column, the numbered rows the right (no empty column). */
+@media (min-width: 68.75rem) {
+  main > #content:has(> section[aria-labelledby="results-title"]) {
+    grid-column: 1 / -1;
+  }
+  #content > section[aria-labelledby="results-title"] {
+    display: grid;
+    grid-template-columns: minmax(0, 22rem) minmax(0, 1fr);
+    grid-template-rows: auto auto 1fr;
+    column-gap: 4rem;
+  }
+  #content > section[aria-labelledby="results-title"] > h1 {
+    grid-column: 1;
+    font-size: clamp(2.5rem, 1.6rem + 2vw, 3.5rem);
+  }
+  #content > section[aria-labelledby="results-title"] > p {
+    grid-column: 1;
+  }
+  #content > section[aria-labelledby="results-title"] > ol {
+    grid-column: 2;
+    grid-row: 1 / span 3;
+    margin-top: 2.5rem;
+  }
+  #content > section[aria-labelledby="results-title"] > ol > li:first-child {
+    border-top: 0;
+  }
+}
