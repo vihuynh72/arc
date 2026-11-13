@@ -14,6 +14,9 @@ export default function check() {
   assert.equal(shouldAct("goto", 0.9, "none", 0.9), false);
   assert.equal(shouldAct("tour", 0.9, "n05", 0.9), true);
   assert.equal(shouldAct("tour", 0.5, "n05", 0.9), false);
+  assert.equal(shouldAct("open", 0.9, "r02", 0.9), true);
+  assert.equal(shouldAct("open", 0.9, null, 0.9), false);
+  assert.equal(shouldAct("refresh", 0.8, null, 0), true);
 
   assert.equal(cleanQuery("  Um, please take me to the results. ", "goto"), "take me to the results");
   assert.equal(cleanQuery("hey arc, can you stop", "stop"), "stop");

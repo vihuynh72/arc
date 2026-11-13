@@ -1,5 +1,5 @@
 "use client";
-// The whole page below the header: address form, status line, the twin, the reading cursor. Mounted by app/page.tsx.
+// The whole page below the header: status line, the twin, the reading cursor. Mounted by app/page.tsx.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import LivePanel from "@/components/LivePanel";
 import Reader from "@/components/Reader";
@@ -10,9 +10,9 @@ import { prefetchClip, said, speaker, startWaitTone } from "@/lib/client/reader"
 import { pageContext, setContext } from "@/lib/client/voice";
 import type { Tour, Twin as TwinData, TwinNode } from "@/lib/types";
 
-const DEFAULT_URL = "https://www.mdpi.com/1424-8220/24/6/1935";
-const VIDEO_URL = "https://www.youtube.com/watch?v=EPvd-3712U8";
 const LIVE_LINE = "Fetching the page through Bright Data.";
+const VIDEO = /youtube\.com|youtu\.be|\.(mp4|webm|mov)(\?|$)/i; // same rule as isVideoUrl in lib/server/video.ts
+const SAVED_MS = 700; // a saved copy answers well inside this; past it, the page is coming live
 
 const VIA: Record<TwinData["source"]["via"], string> = {
   cache: "Loaded from the saved copy",
@@ -20,36 +20,47 @@ const VIA: Record<TwinData["source"]["via"], string> = {
   unlocker: "Fetched live through Bright Data Web Unlocker",
   gemini: "Built from the video with Gemini",
 };
+const host = (u = "") => {
+  try {
+    return new URL(u).hostname.replace(/^www\./, "");
+  } catch {
+    return u;
+  }
+};
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 const took = (ms?: number) => (ms == null ? "" : ms < 1000 ? ` in ${ms} milliseconds.` : ` in ${(ms / 1000).toFixed(1)} seconds.`);
 
 export default function Twin() {
-  const [url, setUrl] = useState(DEFAULT_URL);
   const [twin, setTwin] = useState<TwinData | null>(null);
   const [found, setFound] = useState<{ query: string; results: Result[] } | null>(null);
-  const [status, setStatus] = useState("Choose a page, then press Load.");
-  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("Paste a link, or tell Arc what you want.");
   const [elapsed, setElapsed] = useState<number | null>(null);
   const [tourId, setTourId] = useState<string | null>(null);
 
   useEffect(() => prefetchClip(LIVE_LINE), []); // warms the voice so the live line starts at once
 
+  // live: skip the saved copy. Otherwise the saved copy if there is one, else the server fetches live itself.
   const load = useCallback(async (target: string, live: boolean) => {
     speaker.cancel();
-    setBusy(true);
     setFound(null);
     setTourId(null);
-    setElapsed(live ? 0 : null);
-    setStatus(live ? "Fetching the page through Bright Data." : "Loading the saved copy.");
+    const video = VIDEO.test(target);
+    setStatus(video ? "Outlining the video." : live ? LIVE_LINE : "Loading.");
     let ended = false;
     let stopTone = () => {};
     let timer: ReturnType<typeof setInterval> | undefined;
-    if (live) {
+    // No saved copy came back quickly: say why there is a wait, then a soft tone and a counter until it arrives.
+    const waiting = () => {
+      if (ended) return;
+      if (video) return void (stopTone = startWaitTone());
+      setStatus(LIVE_LINE);
+      setElapsed(0);
       timer = setInterval(() => setElapsed((s) => (s ?? 0) + 1), 1000);
       void speaker.say([LIVE_LINE]).then(() => {
         if (!ended) stopTone = startWaitTone(); // never over the spoken line
       });
-    }
+    };
+    const soon = setTimeout(waiting, live ? 0 : SAVED_MS);
     try {
       const res = await fetch("/api/load", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: target, live }) });
       const data = await res.json();
@@ -57,7 +68,7 @@ export default function Twin() {
       const t = data as TwinData;
       setTwin(t);
       setStatus(`${VIA[t.source.via]}${took(t.source.ms)}`);
-      void speaker.say([`Loaded. ${t.source.title}.`, `${plural(t.counts.sections + t.counts.segments, "section")} and ${plural(t.counts.figures, "figure")}.`, "Use the arrow keys to move."]);
+      void speaker.say([`${t.source.via === "cache" ? "Saved copy." : "Loaded."} ${t.source.title}.`, `${plural(t.counts.sections + t.counts.segments, "section")} and ${plural(t.counts.figures, "figure")}.`, "Use the arrow keys to move."]);
       said(`Loaded ${t.source.title}.`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Could not load that page.";
@@ -65,9 +76,9 @@ export default function Twin() {
       void speaker.say([msg.slice(0, 300)]);
     } finally {
       ended = true;
+      clearTimeout(soon);
       stopTone();
       clearInterval(timer);
-      setBusy(false);
       setElapsed(null);
     }
   }, []);
@@ -115,24 +126,25 @@ export default function Twin() {
     void speaker.say([`Found ${plural(data.results.length, "result")} for ${query}.`]);
   }, []);
 
-  const open = useCallback(
-    (target: string) => {
-      setUrl(target);
-      void load(target, true); // a page that was not prepared has to come live
-    },
-    [load],
-  );
+  const open = useCallback((target: string) => void load(target, false), [load]);
 
-  // Voice commands for the page itself; the cursor ones live in Reader.
-  const handlers = useRef({ search, open });
+  // Commands for the page itself (typed, spoken, or from the one box); the cursor ones live in Reader.
+  const handlers = useRef({ search, open, load, found, twin });
   useEffect(() => {
-    handlers.current = { search, open };
+    handlers.current = { search, open, load, found, twin };
   });
   useEffect(() => {
     const onCommand = (e: Event) => {
-      const { name, args } = (e as CustomEvent<{ name: string; args?: { query?: string; url?: string } }>).detail ?? {};
-      if (name === "search" && args?.query) void handlers.current.search(args.query);
-      if (name === "open" && args?.url) handlers.current.open(args.url);
+      const { name, args } = (e as CustomEvent<{ name: string; args?: { query?: string; url?: string; id?: string } }>).detail ?? {};
+      const h = handlers.current;
+      if (name === "search" && args?.query) void h.search(args.query);
+      if (name === "load" && args?.url) void h.load(args.url, false);
+      if (name === "refresh" && h.twin) void h.load(h.twin.source.url, true);
+      if (name === "open") {
+        // A result id from Snap ("open the second one"), or a full address from the voice model.
+        const url = args?.url ?? h.found?.results[Number(args?.id?.slice(1)) - 1]?.url;
+        if (url) h.open(url);
+      }
     };
     window.addEventListener("arc:command", onCommand);
     return () => window.removeEventListener("arc:command", onCommand);
@@ -148,8 +160,16 @@ export default function Twin() {
 
   // The command box (in the page header) decides over what is on screen now.
   useEffect(
-    () => setCommandContext(items.map((n) => ({ id: n.id, label: n.kind === "figure" ? `${n.heading}: ${n.text.slice(0, 80)}` : n.heading })), tourId !== null),
-    [items, tourId],
+    () =>
+      setCommandContext(
+        items.map((n, i) => ({
+          id: n.id,
+          // Results carry their number and site, so "the second one" and "the one from PubMed" can be picked.
+          label: found ? `Result ${i + 1}: ${n.heading} (${host(found.results[i]?.url)})` : n.kind === "figure" ? `${n.heading}: ${n.text.slice(0, 80)}` : n.heading,
+        })),
+        tourId !== null,
+      ),
+    [items, tourId, found],
   );
   // The question session (Gemini Live) answers from this page, and from the tour when one is open.
   useEffect(() => {
@@ -158,36 +178,6 @@ export default function Twin() {
 
   return (
     <>
-      <form
-        className="address"
-        aria-label="Page to read"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void load(url, false);
-        }}
-      >
-        <label htmlFor="url">Page address</label>
-        <input id="url" type="url" value={url} onChange={(e) => setUrl(e.target.value)} required />
-        <div className="actions">
-          <button type="submit" disabled={busy}>
-            Load
-          </button>
-          <button type="button" disabled={busy} onClick={() => void load(url, true)}>
-            Live fetch with Bright Data
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => {
-              setUrl(VIDEO_URL);
-              void load(VIDEO_URL, false);
-            }}
-          >
-            Outline a video
-          </button>
-        </div>
-      </form>
-
       <p role="status" className="status">
         {status}
       </p>
@@ -218,7 +208,15 @@ export default function Twin() {
           )}
           </>
         ) : (
-          <h1>Arc</h1>
+          <>
+            <h1>Arc</h1>
+            <p>Things to try:</p>
+            <ul>
+              <li>Say: find a paper about knee rehabilitation.</li>
+              <li>Paste the link to a study page, such as https://www.mdpi.com/1424-8220/24/6/1935</li>
+              <li>Paste a YouTube link, and Arc outlines the video.</li>
+            </ul>
+          </>
         )}
       </div>
 

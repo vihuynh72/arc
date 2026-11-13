@@ -1,7 +1,13 @@
 // POST {utterance, items, inTour?} -> Decision. Called by lib/client/decide.ts for every spoken or typed request.
-import { decide, type Item } from "@/lib/server/decide";
+import { decide, warm, type Item } from "@/lib/server/decide";
 
 export const runtime = "nodejs";
+
+// GET: called once when the page opens, so the route is compiled and the SubQ connection is open before the first request.
+export async function GET() {
+  await warm();
+  return new Response(null, { status: 204 });
+}
 
 export async function POST(req: Request) {
   const b = (await req.json().catch(() => null)) as { utterance?: unknown; items?: unknown; inTour?: unknown } | null;

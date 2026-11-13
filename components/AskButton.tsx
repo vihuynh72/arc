@@ -1,13 +1,18 @@
 "use client";
-// Push-to-talk, mounted once in the page header. Hold Space while focused, or click to start and click/Escape to stop.
-// Snap decides first ("Gemini should wrap around Snap"): when Snap is sure the command runs at once and Gemini's
-// reply is dropped; for a question or an unclear request Gemini answers (or asks what was meant), or its command runs.
+// Push-to-talk, mounted once in the page header. Hold Space anywhere outside a text field, or click to start and click
+// again to stop. Escape stops both voices everywhere. Snap decides first ("Gemini should wrap around Snap"): when Snap is
+// sure the command runs at once and Gemini's reply is dropped; otherwise Gemini answers, asks what was meant, or its command runs.
+// Speed: the browser's own speech recognition runs while the key is held. Its words are pre-asked to Snap once stable,
+// and on release a sure decision acts without waiting for Gemini Live's transcript ("heard").
 // Kokoro reading the node where the cursor lands is the confirmation, so this control speaks none of its own.
 import { useEffect, useRef, useState } from "react";
 import { startMic } from "@/lib/client/audio";
-import { describe, submitUtterance } from "@/lib/client/command";
-import { speaker } from "@/lib/client/reader";
+import { act, describe, preDecide, submitUtterance } from "@/lib/client/command";
+import { prefetchClip, speaker } from "@/lib/client/reader";
 import { askAudio, askEnd, askStart, audioState, chime, dropAnswer, playAnswer, say, stop, type AskHooks } from "@/lib/client/voice";
+
+const GREETING = "Arc. Hold Space and tell me what to study, or paste a link.";
+const STABLE_MS = 350; // interim words unchanged this long are pre-asked to Snap
 
 type Args = Record<string, unknown>;
 type Mic = (onChunk: (b64: string) => void) => Promise<() => void>;
@@ -18,10 +23,26 @@ interface Ask {
   held: { name: string; args: Args }[]; // Gemini commands waiting for Snap's decision
   ran: boolean;
   gemini?: number;
+  words: string; // browser transcript so far, final plus interim
+  early?: Promise<void>; // the decision on the browser transcript; "heard" waits for it
+  rec?: { stop(): void; abort(): void };
+}
+
+// Minimal shape of the browser's SpeechRecognition (input only; output never uses speechSynthesis).
+interface Rec {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onerror: (() => void) | null;
+  start(): void;
+  stop(): void;
+  abort(): void;
 }
 
 const dispatch = (name: string, args: Args) => window.dispatchEvent(new CustomEvent("arc:command", { detail: { name, args } }));
 const time = (ask: Ask, what: string, at = performance.now()) => console.info(`[arc-timing] ${ask.id} ${what} ${Math.round(at - ask.t0)} ms after release`);
+const typing = (t: EventTarget | null) => !!(t as HTMLElement | null)?.closest?.("input, textarea, select, [contenteditable='true']");
 
 export default function AskButton() {
   const [state, setState] = useState<"idle" | "listening" | "error">("idle");
@@ -29,6 +50,9 @@ export default function AskButton() {
   const mic = useRef<{ ask: Ask; close: Promise<(() => void) | undefined> } | undefined>(undefined);
   const current = useRef<Ask | undefined>(undefined);
   const lastCommand = useRef(0);
+  const greeted = useRef(false);
+
+  useEffect(() => prefetchClip(GREETING), []);
 
   useEffect(() => {
     const onCommand = (e: Event) => {
@@ -56,6 +80,14 @@ export default function AskButton() {
     void playAnswer(ask.id);
   };
 
+  // Snap is sure: act now, drop Gemini's reply.
+  const toSnap = (ask: Ask, why: string) => {
+    ask.owner = "snap";
+    dropAnswer(ask.id);
+    console.info(`[arc-timing] ${ask.id} gemini reply dropped (${why})`);
+    if (lastCommand.current >= ask.t0) time(ask, "cursor command dispatched", lastCommand.current);
+  };
+
   const hooks = (ask: Ask): AskHooks => ({
     first: () => {
       if (ask.gemini != null) return;
@@ -67,7 +99,9 @@ export default function AskButton() {
       else if (!ask.owner) ask.held.push({ name, args });
     },
     heard: async (text) => {
-      time(ask, "heard");
+      time(ask, "live heard");
+      await ask.early;
+      if (ask.owner) return; // the early transcript already decided this ask
       setLine(`Heard "${text}"`);
       if (!text.trim()) return toGemini(ask);
       let d;
@@ -77,26 +111,50 @@ export default function AskButton() {
         setLine(`Heard "${text}" · Snap failed · Gemini answers`);
         return toGemini(ask);
       }
-      time(ask, `snap decided (${Math.round(d.ms)} ms in Snap)`);
+      if (ask.owner) return;
+      time(ask, `snap decided on live transcript (${Math.round(d.ms)} ms in Snap)`);
       // A "none" Snap is unsure of (below its 0.6 act threshold) is unclear speech: Gemini asks what was meant.
       const gemini = !d.act && !(d.action === "none" && d.confidence >= 0.6);
       setLine(`Heard "${text}" · ${describe(d)}${gemini ? " · Gemini answers" : ""}`);
       if (gemini) return toGemini(ask);
-      ask.owner = "snap";
-      dropAnswer(ask.id);
-      console.info(`[arc-timing] ${ask.id} gemini reply dropped`);
-      if (d.act && lastCommand.current >= ask.t0) time(ask, "cursor command dispatched", lastCommand.current);
+      toSnap(ask, "live transcript");
     },
   });
+
+  // Browser speech recognition while the key is held. Missing or failing, it simply yields no words.
+  const listen = (ask: Ask) => {
+    const W = window as unknown as { SpeechRecognition?: new () => Rec; webkitSpeechRecognition?: new () => Rec };
+    const Ctor = W.SpeechRecognition ?? W.webkitSpeechRecognition;
+    if (!Ctor) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const rec = new Ctor();
+      rec.lang = "en-US";
+      rec.continuous = true;
+      rec.interimResults = true;
+      rec.onresult = (e) => {
+        ask.words = Array.from(e.results, (r) => r[0]?.transcript ?? "").join(" ").replace(/\s+/g, " ").trim();
+        clearTimeout(timer);
+        const w = ask.words;
+        if (w) timer = setTimeout(() => mic.current?.ask === ask && void preDecide(w).catch(() => {}), STABLE_MS);
+      };
+      rec.onerror = () => {};
+      rec.start();
+      ask.rec = rec;
+    } catch {
+      // recognition unavailable: the Live path runs unchanged
+    }
+  };
 
   const begin = (source: Mic = startMic) => {
     if (mic.current) return;
     speaker.cancel(); // both voices stop at once: askStart stops the Live voice
-    const ask: Ask = { id: "", t0: performance.now(), held: [], ran: false };
+    const ask: Ask = { id: "", t0: performance.now(), held: [], ran: false, words: "" };
     ask.id = askStart(hooks(ask));
     current.current = ask;
     setLine("");
     void chime();
+    if (source === startMic) listen(ask);
     const close = source(askAudio).catch((err) => {
       console.warn("[ask] microphone", err);
       setState("error");
@@ -110,24 +168,82 @@ export default function AskButton() {
     const m = mic.current;
     if (!m) return;
     mic.current = undefined;
+    const ask = m.ask;
+    const words = ask.words; // taken at release; later results are ignored
+    ask.rec?.stop();
     (await m.close)?.();
-    m.ask.t0 = performance.now();
+    ask.t0 = performance.now();
     askEnd();
     setState((s) => (s === "error" ? s : "idle"));
     void chime();
+    if (!words) return;
+    time(ask, `browser transcript "${words}"`);
+    ask.early = preDecide(words).then(
+      (d) => {
+        time(ask, `snap decided on browser transcript (${Math.round(d.ms)} ms in Snap, ${d.action}, act ${d.act})`);
+        if (ask.owner || !d.act) return; // not sure: Live's transcript decides, as before
+        setLine(`Heard "${words}" · ${describe(d)}`);
+        act(d);
+        toSnap(ask, "browser transcript");
+      },
+      () => {},
+    );
   };
 
+  // Hold Space anywhere outside a text field; Escape stops both voices everywhere. Capture phase, so a focused
+  // button never also gets the Space click.
+  useEffect(() => {
+    const greet = (e: Event) => {
+      if (greeted.current) return;
+      greeted.current = true; // browsers allow audio only after a gesture: the first one is it
+      const space = e instanceof KeyboardEvent && e.key === " " && !typing(e.target);
+      if (!space) void speaker.say([GREETING]);
+    };
+    const down = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        speaker.cancel();
+        stop();
+        if (mic.current) void end();
+      } else if (e.key === " " && !typing(e.target) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        if (!e.repeat) begin();
+      }
+      greet(e);
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.key !== " " || !mic.current || typing(e.target)) return;
+      e.preventDefault(); // no click from Space
+      void end();
+    };
+    window.addEventListener("keydown", down, true);
+    window.addEventListener("keyup", up, true);
+    window.addEventListener("pointerdown", greet, true);
+    return () => {
+      window.removeEventListener("keydown", down, true);
+      window.removeEventListener("keyup", up, true);
+      window.removeEventListener("pointerdown", greet, true);
+    };
+  });
+
   // Test only, on localhost: the same begin/end path with prepared 16 kHz PCM16 chunks instead of the microphone.
+  // words stands in for the browser transcript; holdMs keeps the key "held" that long after the words arrive (pre-ask).
   useEffect(() => {
     if (location.hostname !== "localhost") return;
     (window as unknown as { __arcTest?: object }).__arcTest = {
       audioState,
       say,
-      ask: async (chunks: string[]) => {
+      ask: async (chunks: string[], words = "", holdMs = 0) => {
         begin(async (onChunk) => {
           chunks.forEach(onChunk);
           return () => {};
         });
+        const ask = mic.current!.ask;
+        if (words && holdMs > STABLE_MS) {
+          ask.words = words;
+          setTimeout(() => void preDecide(words).catch(() => {}), STABLE_MS);
+        }
+        if (holdMs) await new Promise((r) => setTimeout(r, holdMs));
+        ask.words = words;
         await end();
       },
     };
@@ -145,21 +261,6 @@ export default function AskButton() {
       <button
         type="button"
         aria-pressed={state === "listening"}
-        onKeyDown={(e) => {
-          if (e.key === " ") {
-            e.preventDefault();
-            if (!e.repeat) begin();
-          } else if (e.key === "Escape" && mic.current) {
-            e.preventDefault();
-            void end();
-          }
-        }}
-        onKeyUp={(e) => {
-          if (e.key === " ") {
-            e.preventDefault(); // no click from Space
-            void end();
-          }
-        }}
         onClick={() => {
           if (mic.current) void end();
           else begin();

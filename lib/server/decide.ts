@@ -6,7 +6,7 @@ const MODEL = "subq-snap-1.2";
 export const ACTION_MIN = 0.6; // action confidence needed to act
 export const TARGET_MIN = 0.6; // target confidence needed for goto and tour
 
-export type Action = "next" | "prev" | "goto" | "read" | "stop" | "tour" | "search" | "question" | "none";
+export type Action = "next" | "prev" | "goto" | "read" | "stop" | "tour" | "search" | "open" | "refresh" | "question" | "none";
 export interface Item {
   id: string;
   label: string;
@@ -29,6 +29,8 @@ const ACTIONS: Record<Action, string> = {
   stop: "be quiet, stop talking",
   tour: "start the guided tour of a figure",
   search: "find a different study page on the web",
+  open: "open one of the listed search results, or a link the student names",
+  refresh: "fetch the current page again, live from the web",
   question: "answer a question about the content of this page",
   none: "not a request to Arc",
 };
@@ -37,7 +39,7 @@ const ACTIONS: Record<Action, string> = {
 export function shouldAct(action: Action, confidence: number, target: string | null, targetConfidence: number): boolean {
   if (confidence < ACTION_MIN) return false;
   if (action === "none" || action === "question") return false;
-  if (action === "goto" || action === "tour") return targetConfidence >= TARGET_MIN && target !== null && target !== "none";
+  if (action === "goto" || action === "tour" || action === "open") return targetConfidence >= TARGET_MIN && target !== null && target !== "none";
   return true;
 }
 
@@ -83,6 +85,9 @@ async function post(body: unknown): Promise<Response> {
 type Choice = { choice: string; probabilities?: Record<string, number>; confidence?: number };
 const conf = (a: Choice) => a.confidence ?? a.probabilities?.[a.choice] ?? 0;
 
+/** Opens the TLS connection to SubQ ahead of the first request; Node's fetch keeps it alive in its pool. */
+export const warm = () => fetch(URL, { method: "HEAD", signal: AbortSignal.timeout(4000) }).catch(() => {});
+
 export async function decide(input: { utterance: string; items: Item[]; inTour?: boolean }): Promise<Decision> {
   const t0 = Date.now();
   const items = input.items.slice(0, 120).map((i) => ({ id: i.id, label: i.label.slice(0, 120) }));
@@ -99,8 +104,8 @@ export async function decide(input: { utterance: string; items: Item[]; inTour?:
       target: {
         type: "choice",
         instructions:
-          "Which section or figure of the page does the utterance refer to? Choose none if it names no section or figure.",
-        criteria: { ...Object.fromEntries(items.map((i) => [i.id, i.label])), none: "no section or figure is named" },
+          "Which listed section, figure or search result does the utterance refer to? \"The second one\" means Result 2. Choose none if it names none of them.",
+        criteria: { ...Object.fromEntries(items.map((i) => [i.id, i.label])), none: "no listed item is named" },
       },
     },
   };

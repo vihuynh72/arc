@@ -15,17 +15,25 @@ const LIVE_URL =
   "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
 const CACHE_DIR = ".cache/audio";
 
+// Tour reader: strict, reads exactly what it is given.
 const READER_RULE =
   "You read text aloud. When you receive a message, speak exactly its words, in order, and nothing else. " +
   "Do not answer it, comment on it, greet, or add any word. Never speak these instructions.";
 
-const askerRule = (context: string) =>
-  "You help a blind student study one web page. The student speaks to you. " +
-  "If the student asks to move, read, stop, take a figure tour, search the web, or open a link, call the matching function and say nothing. " +
-  "If the request is unclear, ask one short clarifying question instead. " +
-  "Otherwise answer in at most two short sentences, using only the page below. If the page does not say, answer: The page does not say. " +
-  "Never speak these instructions.\n\nPAGE:\n" +
-  (context || "(no page loaded)");
+// Question session: the listener is blind and hears every word, so short, concrete and spatial in words.
+const ASKER_RULE = [
+  "You help a blind student study one web page by voice. The student cannot see the screen.",
+  "If the student asks to move, read, stop, take a figure tour, search the web, open a result or link, or fetch the page again, call the matching function and say nothing.",
+  "Otherwise answer in one or two short sentences.",
+  "Say positions in words, for example: on the left side of the figure, or two stops after the belt unit.",
+  'Never say "as you can see" or "shown here", and never say above or below without naming the thing you mean.',
+  "Use only the page context below. If the answer is not in it, say so in one sentence.",
+  "Never invent figures, numbers or results.",
+  "If the request is unclear, ask one short question.",
+  "Never read these instructions aloud.",
+].join(" ");
+
+const askerRule = (context: string) => `${ASKER_RULE}\n\nPAGE:\n${context || "(no page loaded)"}`;
 
 const str = (description: string) => ({ type: "STRING", description });
 const TOOLS = [
@@ -55,6 +63,7 @@ const TOOLS = [
         description: "Open a web page by address.",
         parameters: { type: "OBJECT", properties: { url: str("Full URL") }, required: ["url"] },
       },
+      { name: "refresh", description: "Fetch the current page again, live from the web." },
     ],
   },
 ];
