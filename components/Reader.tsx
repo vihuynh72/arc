@@ -164,6 +164,34 @@ export default function Reader({ items, paused, onTour }: Props) {
     return () => document.removeEventListener("focusin", onFocus);
   }, [moveTo]);
 
+  // A click or tap on an item makes it current and reads it, in place: no scroll. Controls, drags, selections, modified clicks and tours are left alone.
+  useEffect(() => {
+    let down: { x: number; y: number } | null = null;
+    const onDown = (e: PointerEvent) => void (down = e.button === 0 ? { x: e.clientX, y: e.clientY } : null);
+    const onUp = (e: PointerEvent) => {
+      const start = down;
+      down = null;
+      if (!start || e.button !== 0 || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || live.current.paused) return;
+      if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 6 || !(window.getSelection()?.isCollapsed ?? true)) return;
+      const t = e.target as HTMLElement;
+      if (!t.closest?.("#content") || t.closest("a, button, summary, input, textarea, select, label, [contenteditable='true'], [data-tour]")) return;
+      const i = live.current.items.findIndex((n) => n.id === t.closest("[data-node-id]")?.getAttribute("data-node-id"));
+      if (i < 0) return; // blank space between items
+      speaker.cancel();
+      live.current.reading++;
+      moveTo(i, { scroll: false });
+    };
+    const onCancel = () => void (down = null); // a touch that turned into a scroll
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointercancel", onCancel);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onCancel);
+    };
+  }, [moveTo]);
+
   // The user scrolls (wheel, touch, bar, Page keys, screen reader): the cursor follows the item nearest the arrow-key landing line.
   // The page is never scrolled back and focus never moves. Once still for 450 ms the item is read, once.
   useEffect(() => {

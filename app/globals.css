@@ -1583,3 +1583,14 @@ body:has([data-tour]) .arc-ring {
 [data-tour] [data-readout] {
   font-weight: 600;
 }
+
+/* Pointer users: an item can be clicked or tapped to read it (components/Reader.tsx). */
+@media (hover: hover) {
+  #content [data-node-id] {
+    cursor: pointer;
+  }
+  #content [data-node-id]:hover {
+    outline: 2px solid color-mix(in srgb, var(--ring) 30%, transparent);
+    outline-offset: 4px;
+  }
+}
