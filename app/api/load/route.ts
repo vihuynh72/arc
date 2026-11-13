@@ -1,4 +1,4 @@
-import { loadPage } from "@/lib/server/fetch";
+import { liveRoute, loadPage, offline } from "@/lib/server/fetch";
 import { warmPage } from "@/lib/server/tourQueue";
 import { isVideoUrl, videoToTwin } from "@/lib/server/video";
 import type { Twin } from "@/lib/types";
@@ -12,7 +12,9 @@ export async function POST(req: Request) {
     if (isVideoUrl(url)) return Response.json(await videoToTwin(url));
     const twin = await loadPage(url, { live: !!live });
     warmTours(twin);
-    return Response.json(twin);
+    // A stored copy: say which route the live fetch the page asks for next will take (none when offline).
+    const next = twin.source.via === "cache" && !live && !offline() ? liveRoute(url) : undefined;
+    return Response.json({ ...twin, live: next });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "Could not load that page." }, { status: 502 });
   }

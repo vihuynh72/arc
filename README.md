@@ -10,7 +10,7 @@ Arc is for blind and low-vision students who study from public web pages. It reb
 
 There is one input box. Paste a link, or say or type what you want. Three things to learn:
 
-1. Hold Space anywhere and speak.
+1. Hold Space anywhere and speak (in the box too, while it is empty). Or press the backquote key (`) once to start and again to send; it works even in a box with text.
 2. Arrow keys move the cursor.
 3. Escape stops speech.
 
@@ -60,6 +60,10 @@ In scripted tests the cursor moved 140 to 440 ms after key release, against abou
 | Kokoro (`af_bella`, local) | Reads the page, confirms moves | Open source, about 2.5x real time on a laptop |
 | Plain code | Parsing, ids, counts, spatial directions | Must be exact |
 
+## Live data
+
+Every page and search is fetched live. A page or search fetched before is shown at once as a first view, said to be a saved copy, and replaced by the live one when it arrives (the two prepared demo pages in `fixtures/` too). Audio clips, model outputs for the same text or image, and the Kokoro model stay cached, because they are derived from the live content and are not page data. `ARC_OFFLINE=1` (for a room with no network) serves stored copies only and makes no live fetch.
+
 ## Run it locally
 
 ```bash
@@ -81,7 +85,7 @@ Set these in `.env.local`: `BRIGHTDATA_API_TOKEN`, `BRIGHTDATA_UNLOCKER_ZONE`, `
 - `lib/parse/html.ts`: any page's HTML to twin; `lib/parse/markdown.ts`: MDPI markdown to twin
 - `lib/server/decide.ts`: the Snap call and the 60% rule
 - `lib/server/live.ts`: Gemini Live relay
-- `lib/server/fetch.ts`: saved copy, then a plain fetch, then Web Unlocker
+- `lib/server/fetch.ts`: the saved copy as a first view, then the live page: a plain fetch, then Web Unlocker
 - `lib/server/remote.ts`: Browser API remote view
 - `lib/client/voice.ts`: hold-Space voice
 

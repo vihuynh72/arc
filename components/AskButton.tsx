@@ -1,6 +1,7 @@
 "use client";
-// Push-to-talk, mounted once in the page header. Hold Space anywhere outside a text field, or click to start and click
-// again to stop. Escape stops both voices everywhere. Snap decides first ("Gemini should wrap around Snap"): when Snap is
+// Push-to-talk, mounted once in the page header. Hold Space anywhere outside a text field (or in the empty box), or
+// press the backquote key once to start and again to send (anywhere, even in a box with text), or click to start and
+// click again to stop. Escape stops both voices everywhere. Snap decides first ("Gemini should wrap around Snap"): when Snap is
 // sure the command runs at once and Gemini's reply is dropped; otherwise Gemini answers, asks what was meant, or its command runs.
 // Speed: early words come from two sources while the key is held: Gemini's transcription session ("heard_partial", via the
 // relay) and, where it exists, the browser's own speech recognition. Either one's words are pre-asked to Snap once stable,
@@ -16,6 +17,7 @@ import { answerText, askAudio, askEnd, askResult, askStart, audioState, chime, d
 const GREETING = "Arc. Tell me how you see, or say what you want to study.";
 const STABLE_MS = 350; // interim words unchanged this long are pre-asked to Snap
 const TAP_MS = 200; // a Space tap shorter than this is not a question: nothing is sent to Gemini
+const TOGGLE_MS = 12_000; // backquote listening sends itself after this (no silence detection here)
 
 type Args = Record<string, unknown>;
 type Mic = (onChunk: (b64: string) => void) => Promise<() => void | Promise<void>>;
@@ -51,6 +53,9 @@ const dispatch = (name: string, args: Args) => window.dispatchEvent(new CustomEv
 const time = (ask: Ask, what: string, at = performance.now()) => console.info(`[arc-timing] ${ask.id} ${what} ${Math.round(at - ask.t0)} ms after release`);
 // An open dialog (the Display panel) also keeps Space for its own controls.
 const typing = (t: EventTarget | null) => !!(t as HTMLElement | null)?.closest?.("input, textarea, select, [contenteditable='true'], dialog");
+// The one box with nothing typed in it: Space there talks too (focus often sits in the box).
+const emptyBox = (t: EventTarget | null) => (t as HTMLInputElement | null)?.id === "command" && !(t as HTMLInputElement).value.trim();
+const backquote = (e: KeyboardEvent) => (e.code === "Backquote" || e.key === "`") && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
 
 export default function AskButton() {
   const [state, setState] = useState<"idle" | "listening" | "error">("idle");
@@ -59,6 +64,7 @@ export default function AskButton() {
   const current = useRef<Ask | undefined>(undefined);
   const lastCommand = useRef(0);
   const greeted = useRef(false);
+  const toggled = useRef<ReturnType<typeof setTimeout> | undefined>(undefined); // set while backquote listening runs
 
   useEffect(() => prefetchClip(GREETING), []);
 
@@ -220,6 +226,8 @@ export default function AskButton() {
     const m = mic.current;
     if (!m) return;
     mic.current = undefined;
+    clearTimeout(toggled.current);
+    toggled.current = undefined;
     setState((s) => (s === "error" ? s : "idle")); // at once: a pending microphone prompt must not leave it "Listening"
     const ask = m.ask;
     clearTimeout(timers.current.get(ask));
@@ -277,14 +285,22 @@ export default function AskButton() {
         speaker.cancel();
         stop();
         if (mic.current) void end();
-      } else if (e.key === " " && !typing(e.target) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      } else if (backquote(e)) {
+        e.preventDefault(); // never types a backquote, in the box or anywhere
+        if (e.repeat) return;
+        if (mic.current) void end();
+        else {
+          begin();
+          toggled.current = setTimeout(() => void end(), TOGGLE_MS);
+        }
+      } else if (e.key === " " && (!typing(e.target) || emptyBox(e.target)) && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         if (!e.repeat) begin();
       }
       greet(e);
     };
     const up = (e: KeyboardEvent) => {
-      if (e.key !== " " || !mic.current || typing(e.target)) return;
+      if (e.key !== " " || !mic.current || toggled.current || (typing(e.target) && !emptyBox(e.target))) return;
       e.preventDefault(); // no click from Space
       void end();
     };

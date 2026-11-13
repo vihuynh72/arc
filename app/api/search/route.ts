@@ -1,9 +1,12 @@
 // POST {query} -> web search through Bright Data (Google SERP zone, else Web Unlocker + DuckDuckGo/Bing), raced with OpenAlex papers.
 // With `accept: application/x-ndjson` it streams one line per batch as each lands ({results, via, ms}); otherwise one merged JSON.
+// Always live: a query searched before first streams its saved results (via "cache") at once, then the live batches.
+// ARC_OFFLINE=1: the saved results only, no live search.
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import * as cheerio from "cheerio";
 import { serp, unlock } from "@/lib/server/brightdata";
+import { offline } from "@/lib/server/fetch";
 import { searchPapers } from "@/lib/server/openalex";
 
 export const runtime = "nodejs";
@@ -69,11 +72,16 @@ async function google(q: string): Promise<Hit[]> {
   return Promise.any([first, second]);
 }
 
-/** The Bright Data web results, from the disk cache when this query was searched before. */
+const savedFile = (q: string) => `.cache/search/${createHash("sha1").update(q.toLowerCase()).digest("hex")}.json`;
+/** The web results saved the last time this query was searched: only the instant first view. */
+const saved = async (q: string): Promise<Hit[] | null> => {
+  const s = await readFile(savedFile(q), "utf8").catch(() => null);
+  return s ? clean((JSON.parse(s) as { results: Hit[] }).results ?? []) : null;
+};
+
+/** The Bright Data web results, live; saved to disk for the next first view. */
 async function web(q: string, t: number): Promise<Batch> {
-  const file = `.cache/search/${createHash("sha1").update(q.toLowerCase()).digest("hex")}.json`;
-  const hit = await readFile(file, "utf8").catch(() => null);
-  if (hit) return { ...JSON.parse(hit), via: "cache", ms: Date.now() - t };
+  const file = savedFile(q);
   try {
     const results = (await google(q)).slice(0, 8);
     await mkdir(".cache/search", { recursive: true });
@@ -119,6 +127,14 @@ export async function POST(req: Request) {
   const q = query?.trim().slice(0, 200);
   if (!q) return Response.json({ error: "Say what you want to search for." }, { status: 400 });
 
+  const ndjson = /ndjson/.test(req.headers.get("accept") ?? "");
+  const earlier = await saved(q);
+  if (offline()) {
+    if (!earlier?.length) return Response.json({ error: "Arc is offline and has no saved results for this search." }, { status: 502 });
+    const b = { results: earlier, via: "cache", ms: Date.now() - t };
+    return ndjson ? new Response(JSON.stringify(b) + "\n", { headers: { "content-type": "application/x-ndjson" } }) : Response.json(b);
+  }
+
   const seen = new Set<string>();
   const fresh = (b: Batch): Batch => ({
     ...b,
@@ -132,10 +148,10 @@ export async function POST(req: Request) {
   const w = web(q, t);
   const p = papers(q, t);
   // Bright Data leads when it answers within about 2 s; otherwise OpenAlex keeps the 2-second promise and Bright Data is appended.
-  const quick = await Promise.race([w.then(() => true, () => false), sleep(1800).then(() => false)]);
-  const jobs = quick ? [w, p] : [p, w];
+  const quickly = Promise.race([w.then(() => true, () => false), sleep(1800).then(() => false)]);
 
-  if (!/ndjson/.test(req.headers.get("accept") ?? "")) {
+  if (!ndjson) {
+    const jobs = (await quickly) ? [w, p] : [p, w];
     const done = await Promise.allSettled(jobs);
     const batches = done.flatMap((d) => (d.status === "fulfilled" ? [fresh(d.value)] : []));
     if (!batches.length) return Response.json({ error: "Search is not answering right now." }, { status: 502 });
@@ -146,6 +162,10 @@ export async function POST(req: Request) {
   const body = new ReadableStream({
     async start(ctl) {
       let sent = 0;
+      // The saved results go out first, before the wait for Bright Data; the page replaces or extends them (components/Twin.tsx).
+      if (earlier?.length) ctl.enqueue(enc.encode(JSON.stringify({ results: earlier, via: "cache", ms: Date.now() - t }) + "\n"));
+      const quick = await quickly;
+      const jobs = quick ? [w, p] : [p, w];
       if (quick) {
         // Bright Data first, then OpenAlex, in that order.
         for (const j of jobs) {

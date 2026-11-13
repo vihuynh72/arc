@@ -1,5 +1,6 @@
 // Page fetch. MDPI and fixtures: fixtures, then .cache/pages, then Bright Data Web Unlocker markdown (live).
-// Other pages: loadPage below.
+// Other pages: loadPage below. A stored copy is only the instant first view: components/Twin.tsx then asks for the
+// live page (live: true). ARC_OFFLINE=1 (a room with no network) serves stored copies only and never fetches.
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import type { Twin } from "@/lib/types";
@@ -14,6 +15,11 @@ const cachePath = (url: string) => `.cache/pages/${createHash("sha1").update(url
 const fixtureDir = (url: string) =>
   url.includes("1424-8220/24/6/1935") ? "lower" : url.includes("2226-4310") ? "mars" : null;
 const read = (p: string) => readFile(p, "utf8").catch(() => null);
+export const offline = () => process.env.ARC_OFFLINE === "1";
+const NO_COPY = "Arc is offline and has no saved copy of this page.";
+const viaMarkdown = (url: string) => !!fixtureDir(url) || /(^|\.)mdpi\.com$/i.test(new URL(url).hostname);
+/** The route a live fetch of this link takes, for the status line shown while the stored copy is on screen. */
+export const liveRoute = (url: string): "brightdata" | "direct" => (viaMarkdown(url) ? "brightdata" : "direct");
 
 async function cached(url: string): Promise<string | null> {
   const dir = fixtureDir(url);
@@ -24,7 +30,8 @@ async function cached(url: string): Promise<string | null> {
 export async function fetchMarkdown(url: string, opts: { live?: boolean } = {}): Promise<Fetched> {
   const t = Date.now();
   const hit = await cached(url);
-  if (!opts.live && hit) return { markdown: hit, via: "cache", ms: Date.now() - t };
+  if ((!opts.live || offline()) && hit) return { markdown: hit, via: "cache", ms: Date.now() - t };
+  if (offline()) throw new Error(NO_COPY);
 
   const call = unlock(url).then(async (md) => {
     if (md.length > 1000) {
@@ -76,10 +83,11 @@ export async function loadPage(url: string, opts: { live?: boolean } = {}): Prom
     const { markdown, via } = await fetchMarkdown(url, opts);
     return done(parseMarkdown(markdown, url), via);
   };
-  if (fixtureDir(url) || /(^|\.)mdpi\.com$/i.test(new URL(url).hostname)) return markdownRoute(); // the prepared demo route, unchanged
+  if (viaMarkdown(url)) return markdownRoute(); // the prepared demo route, unchanged
 
-  const saved = opts.live ? null : await read(htmlPath(url));
+  const saved = opts.live && !offline() ? null : await read(htmlPath(url));
   if (saved) return done(parseHtml(saved, url), "cache");
+  if (offline()) throw new Error(NO_COPY);
 
   const html = await direct(url).catch(() => null);
   if (html) {

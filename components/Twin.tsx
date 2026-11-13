@@ -36,10 +36,18 @@ const took = (ms?: number) => (ms == null ? "." : ms < 50 ? " instantly." : ms <
 const NEXT_STEP = "Paste another link, or hold Space and ask for a paper.";
 const FULL_LINE = "Loading the full page through Bright Data.";
 const VIDEO_LINE = "Outlining the video with Gemini.";
+// A stored copy is only the first view: the live page is fetched at once and swapped in (lib/server/fetch.ts).
+const SAVED_LINE = "Saved copy from earlier. Fetching the live page.";
+const LIVE_READY = "The live page is ready.";
+const LIVE_FAILED = "I could not reach the live page. This is the saved copy from earlier.";
+const LIVE_BUDGET_MS = 45_000; // the server gives Bright Data 25 s, then answers with the stored copy (treated as a failure)
+type Route = "brightdata" | "direct";
+const routeWords = (r: Route | TwinData["source"]["via"]) => (r === "direct" ? "directly" : "through Bright Data");
+const seconds = (ms = 0) => `${ms >= 10_000 ? Math.round(ms / 1000) : (ms / 1000).toFixed(1)} seconds`;
 
 type Hint = { title: string; snippet: string };
 type Preview = TwinData & { from: string };
-type Batch = { results?: Result[]; via?: string; error?: string };
+type Batch = { results?: Result[]; via?: string; ms?: number; error?: string };
 const counted = (t: TwinData) =>
   `${plural(t.counts.sections + t.counts.segments, t.counts.segments ? "part" : "section")}${t.counts.figures ? `, ${plural(t.counts.figures, "figure")}` : ""}`;
 // shortcut: reads Speaker's private audio element to find the gap between two sentences; a public hook on Speaker would be cleaner.
@@ -64,9 +72,11 @@ export default function Twin() {
   const lastContext = useRef("");
   const prioritised = useRef(new Set<string>()); // figures whose analysis was moved up the server's queue
   const twinRef = useRef<TwinData | null>(null);
+  const tourRef = useRef<string | null>(null);
   useEffect(() => {
     twinRef.current = twin;
-  }, [twin]);
+    tourRef.current = tourId;
+  }, [twin, tourId]);
 
   // Voice first: a status line nobody said is said once, in its own words, when the voice is free (never over another line).
   useEffect(() => {
@@ -86,7 +96,7 @@ export default function Twin() {
   }, [status]);
 
   // Warms the voice so these fixed lines start at once.
-  useEffect(() => [LIVE_LINE, FULL_LINE, VIDEO_LINE, NEXT_STEP, "Use the arrow keys, or say open the first one.", "Use the arrow keys, or hold Space and ask."].forEach(prefetchClip), []);
+  useEffect(() => [LIVE_LINE, FULL_LINE, VIDEO_LINE, NEXT_STEP, SAVED_LINE, LIVE_READY, LIVE_FAILED, "Use the arrow keys, or say open the first one.", "Use the arrow keys, or hold Space and ask."].forEach(prefetchClip), []);
   useEffect(() => {
     const onCursor = (e: Event) => {
       const d = (e as CustomEvent<{ id: string; heading: string }>).detail;
@@ -105,9 +115,64 @@ export default function Twin() {
   useEffect(() => {
     if (!cursorTo) return;
     window.dispatchEvent(new CustomEvent("arc:command", { detail: { name: "goto", args: { id: cursorTo.id, silent: true } } }));
+    if (!cursorTo.lines.length) return; // a silent move: whatever is being read carries on
     said(cursorTo.lines.join(" "));
     void speaker.say(cursorTo.lines).then(cursorTo.then);
   }, [cursorTo]); // each request is a new object, so it runs once per request
+
+  // Swap a newer copy in without yanking: the sentence being spoken ends first, the cursor stays on the item with the
+  // same heading, tours already fetched carry over, and an open tour stays open while its figure is still there.
+  // lines: spoken where the cursor lands; none keeps the reading going. Returns false when a newer load took over.
+  const swapIn = useCallback(async (t: TwinData, mine: number, lines: string[], skipHeading?: string) => {
+    const at = cursorHeading.current;
+    await sentenceEnd();
+    if (mine !== seq.current) return false;
+    const old = twinRef.current;
+    const tours = new Map((old?.nodes ?? []).flatMap((n) => (n.image && n.tour ? [[n.image.url, n.tour] as const] : [])));
+    const nodes = t.nodes.map((n) => (!n.tour && n.image && tours.has(n.image.url) ? { ...n, tour: tours.get(n.image.url) } : n));
+    const open = old?.nodes.find((n) => n.id === tourRef.current);
+    const still = open?.image && nodes.find((n) => n.image?.url === open.image?.url && n.tour);
+    setTwin({ ...t, nodes });
+    if (still) {
+      setTourId(still.id); // the tour keeps its own voice; the cursor stays on its figure
+      return true;
+    }
+    if (open) {
+      stopVoice();
+      setTourId(null);
+    }
+    const i = at && at !== skipHeading ? findNode(nodes, at) : -1;
+    const id = nodes[Math.max(i, 0)]?.id;
+    if (id && (lines.length || id !== cursorId.current)) setCursorTo({ id, lines });
+    return true;
+  }, []);
+
+  // A stored copy is on screen: fetch the live page now and swap it in; say one line only when something changed.
+  const revalidate = useCallback(
+    async (target: string, mine: number, stored: TwinData) => {
+      let t: TwinData | null = null;
+      try {
+        const res = await fetch("/api/load", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: target, live: true }), signal: AbortSignal.timeout(LIVE_BUDGET_MS) });
+        const d = (await res.json()) as TwinData;
+        if (res.ok && d.nodes?.length && d.source?.via !== "cache") t = d; // "cache" back from a live ask: Bright Data ran out of time
+      } catch {
+        // offline, timed out or refused: the stored copy stays
+      }
+      if (mine !== seq.current) return;
+      if (!t) {
+        setStatus(LIVE_FAILED);
+        // A fast failure (no network) lands while the saved copy is being introduced: let that finish first, up to 8 s.
+        for (let i = 0; speaker.busy && i < 80; i++) await new Promise((r) => setTimeout(r, 100));
+        await sentenceEnd();
+        if (mine === seq.current) void speaker.say([LIVE_FAILED]);
+        return;
+      }
+      const changed = t.source.title !== stored.source.title || counted(t) !== counted(stored);
+      if (!(await swapIn(t, mine, changed ? [LIVE_READY] : []))) return;
+      setStatus(`Live page loaded ${routeWords(t.source.via)} in ${seconds(t.source.ms)}.`);
+    },
+    [swapIn],
+  );
 
   // live: skip the saved copy. Otherwise the saved copy if there is one, else the server fetches live itself.
   // With no saved copy, a quick preview (/api/preview, asked at the same time) is shown and read while the full page loads.
@@ -177,17 +242,18 @@ export default function Twin() {
         return;
       }
       if (was) {
-        // Swap without yanking: wait for the sentence being spoken to end, keep the cursor on the same heading.
-        const at = cursorHeading.current;
-        await sentenceEnd();
-        if (mine !== seq.current) return;
-        const i = at && at !== was.source.title ? findNode(t.nodes, at) : -1;
-        setTwin(t);
-        setStatus(`${VIA[t.source.via]}${took(t.source.ms)}`);
-        if (t.nodes.length) setCursorTo({ id: t.nodes[Math.max(i, 0)].id, lines: [`The full ${video ? "outline" : "page"} is ready. ${counted(t)}.`] });
+        if (await swapIn(t, mine, [`The full ${video ? "outline" : "page"} is ready. ${counted(t)}.`], was.source.title)) setStatus(`${VIA[t.source.via]}${took(t.source.ms)}`);
         return;
       }
       setTwin(t);
+      const next = (data as { live?: Route }).live;
+      if (t.source.via === "cache" && next) {
+        setStatus(`Saved copy shown. Fetching the live page ${routeWords(next)}…`);
+        void speaker.say([SAVED_LINE, `${t.source.title}.`, `${counted(t).replace(", ", " and ")}.`, "Use the arrow keys, or hold Space and ask."]);
+        said(`Loaded ${t.source.title}.`);
+        void revalidate(target, mine, t);
+        return;
+      }
       setStatus(`${VIA[t.source.via]}${took(t.source.ms)}`);
       void speaker.say([`${t.source.via === "cache" ? "Saved copy." : "Loaded."} ${t.source.title}.`, `${counted(t).replace(", ", " and ")}.`, "Use the arrow keys, or hold Space and ask."]);
       said(`Loaded ${t.source.title}.`);
@@ -201,7 +267,7 @@ export default function Twin() {
     } finally {
       finish();
     }
-  }, []);
+  }, [revalidate, swapIn]);
 
   const startTour = useCallback(async (node: TwinNode) => {
     if (!node.image) return;
@@ -246,13 +312,42 @@ export default function Twin() {
     if (!res?.ok || !res.body) return fail();
     let total = 0;
     let errored = false;
+    let earlier = false; // saved results from an earlier search are on screen; the first live batch replaces or extends them
+    let liveSeen = false;
     const take = (b: Batch) => {
       if (mine !== seq.current) return;
       if (!b.results) return void (errored = true);
       const n = b.results.length;
       if (!n) return;
       const results = b.results;
-      const where = b.via === "openalex" ? "papers from OpenAlex open metadata" : b.via === "cache" ? "web results from a saved Bright Data search" : "web results through Bright Data";
+      const where = b.via === "openalex" ? "papers from OpenAlex open metadata" : "web results through Bright Data";
+      if (b.via === "cache") {
+        if (total) return;
+        earlier = true;
+        total = n;
+        setTourId(null);
+        setFound({ query, results });
+        setStatus("Results from earlier. Searching live.");
+        setCursorTo({ id: "r01", lines: [`${plural(n, "result")} from earlier for ${query}. Searching live.`, "Use the arrow keys, or say open the first one."] });
+        return;
+      }
+      if (earlier) {
+        // Replace only while the cursor is still on the first result (opening one starts a load, which ends this search).
+        const untouched = !cursorId.current || cursorId.current === "r01";
+        const first = !liveSeen;
+        liveSeen = true;
+        setFound((f) => {
+          if (!f) return f;
+          if (first && untouched) return { ...f, results };
+          const key = (r: Result) => r.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); // same paper, other home
+          const have = new Set(f.results.flatMap((r) => [r.url, key(r)]));
+          const add = results.filter((r) => !have.has(r.url) && !have.has(key(r)) && have.add(r.url).add(key(r)));
+          return { ...f, results: [...f.results, ...add] }; // never renumber what is on screen
+        });
+        setStatus(`Live results ${b.via === "openalex" ? "from OpenAlex" : "through Bright Data"} in ${seconds(b.ms)}.`);
+        total += n;
+        return;
+      }
       if (!total) {
         setTourId(null);
         setFound({ query, results });
@@ -279,6 +374,7 @@ export default function Twin() {
     } catch {
       errored = true;
     }
+    if (earlier && !liveSeen && mine === seq.current) setStatus("The live search did not answer. These are results from earlier.");
     if (total || mine !== seq.current) return;
     if (errored) return fail();
     setTourId(null);

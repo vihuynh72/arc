@@ -76,7 +76,7 @@ export default function CommandBox() {
       <label htmlFor="command">Paste a link, or tell Arc what you want</label>
       <input ref={box} id="command" type="text" value={text} onChange={(e) => setText(e.target.value)} aria-describedby="command-hint" autoComplete="off" />
       <p id="command-hint" className="hint">
-        Press Enter. Outside this box, hold Space and speak. Press slash to come back here.
+        Press Enter. Hold Space, or press the backquote key, to talk. Press slash to come back here.
       </p>
       <p className="decision">{line}</p>
       <p className="decision">{answer}</p>
