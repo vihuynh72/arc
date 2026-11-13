@@ -274,27 +274,52 @@ export default function Twin() {
     const mine = ++seq.current;
     setFound(null);
     setTourId(null);
-    const res = await fetch(`/api/ingest?id=${encodeURIComponent(id)}`).catch(() => null);
-    const t = res?.ok ? ((await res.json()) as TwinData) : null;
-    if (mine !== seq.current) return;
-    if (!t) return void setStatus(`That page is no longer saved. ${NEXT_STEP}`);
-    setTwin(t);
-    setStatus(`${VIA[t.source.via]}.`);
-    void speaker.say([`Read from your tab. ${t.source.title}.`, `${counted(t).replace(", ", " and ")}.`, "Use the arrow keys, or hold Space and ask."]);
-    said(`Loaded ${t.source.title}.`);
+    setStatus("Opening the page from your tab.");
+    try {
+      const res = await fetch(`/api/ingest?id=${encodeURIComponent(id)}`);
+      const t = res.ok ? ((await res.json()) as TwinData) : null;
+      if (mine !== seq.current) return;
+      if (!t?.nodes?.length) throw new Error(`ingest ${res.status}`);
+      setTwin(t);
+      setStatus(`${VIA[t.source.via] ?? "Read from your open tab"}.`);
+      void speaker.say([`Read from your tab. ${t.source.title}.`, `${counted(t).replace(", ", " and ")}.`, "Use the arrow keys, or hold Space and ask."]);
+      said(`Loaded ${t.source.title}.`);
+    } catch (e) {
+      console.warn("Arc: could not open the page from the tab.", e);
+      if (mine !== seq.current) return;
+      const line = "I could not open that page from your tab. Try the shortcut again.";
+      setStatus(line);
+      void speaker.say([line]);
+      said(line);
+    }
   }, []);
 
-  // Deep links, so nobody has to paste: /?url=<link>, /?q=<request>, /?doc=<id>. The query string is cleared at once.
+  // Deep links, so nobody has to paste: /?url=<link>, /?q=<request>, /?doc=<id> (the extension), /?notice=restricted.
+  // Read once per page (Strict Mode runs effects twice). ?doc and ?url stay in the address: they name the page on
+  // screen, so a reload (or a dev hot reload) opens it again instead of the landing screen. ?q and ?notice are
+  // one-shot and are cleared once handled.
+  const deepLink = useRef(false);
   useEffect(() => {
+    if (deepLink.current) return;
+    deepLink.current = true;
     const p = new URLSearchParams(location.search);
     const [url, q, doc] = [p.get("url"), p.get("q"), p.get("doc")];
-    if (!url && !q && !doc) return;
-    history.replaceState(null, "", location.pathname);
-    queueMicrotask(() => {
-      if (doc) void loadDoc(doc);
-      else if (url && /^https?:\/\//i.test(url)) void load(url, false);
-      else if (q) void submitUtterance(q).catch(() => {});
-    });
+    // An empty or non-web ?url= comes from an older extension that could not read the tab (chrome://, New Tab page).
+    const notice = p.get("notice") ?? (p.has("url") && !/^https?:\/\//i.test(url ?? "") ? "restricted" : null);
+    if (!url && !q && !doc && !notice) return;
+    // Keep Next's own history state: replacing it with null makes the router put the old URL back.
+    const clear = () => !doc && !url && history.replaceState(history.state, "", location.pathname);
+    const restricted = async () => {
+      const line = "Chrome does not let extensions read that page. Open a normal web page and try again.";
+      setStatus(line);
+      void speaker.say([line]);
+      said(line);
+    };
+    // After this effect, not inside it (React's rule against setState in an effect body).
+    void Promise.resolve()
+      .then((): Promise<unknown> | undefined => (doc ? loadDoc(doc) : url && /^https?:\/\//i.test(url) ? load(url, false) : q ? submitUtterance(q) : notice ? restricted() : undefined))
+      .catch(() => {})
+      .finally(clear);
   }, [load, loadDoc]);
 
   const handlers = useRef({ search, open, load, found, twin, tourId, leaveTour });
