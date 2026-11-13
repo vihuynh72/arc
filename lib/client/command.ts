@@ -1,4 +1,4 @@
-// One typed or spoken request: decide, act only when sure, say "not sure" once. Used by CommandBox and, later, the voice button.
+// One typed or spoken request: decide, act only when sure, say "not sure" once. Used by CommandBox and AskButton.
 import { decideAndDispatch, type Decision } from "@/lib/client/decide";
 import { said, speaker } from "@/lib/client/reader";
 import type { Item } from "@/lib/server/decide";
@@ -14,9 +14,10 @@ export function setCommandContext(items: Item[], inTour: boolean) {
 
 const unsure = (d: Decision) => !d.act && d.action !== "question" && d.action !== "none";
 
-export async function submitUtterance(text: string): Promise<Decision> {
+/** quiet: the voice path lets Gemini ask what was meant, so Arc does not say "not sure" itself. */
+export async function submitUtterance(text: string, { quiet = false } = {}): Promise<Decision> {
   const d = await decideAndDispatch(text, ctx.items, ctx.inTour);
-  if (unsure(d)) {
+  if (unsure(d) && !quiet) {
     said(NOT_SURE);
     void speaker.say([NOT_SURE]);
   }

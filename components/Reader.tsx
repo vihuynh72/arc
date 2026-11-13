@@ -53,6 +53,8 @@ export default function Reader({ items, paused, onTour }: Props) {
         (el.querySelector("[data-cursor]") ?? el).scrollIntoView({ block: node.kind === "figure" ? "center" : "start", behavior: calm ? "auto" : "smooth" });
       }
       place(true);
+      const figureIndex = node.kind === "figure" ? list.slice(0, i + 1).filter((n) => n.kind === "figure").length : undefined;
+      window.dispatchEvent(new CustomEvent("arc:cursor", { detail: { id: node.id, kind: node.kind, heading: node.heading, figureIndex } }));
       if (opts.read !== false) void speaker.say(nodeSpeech(node));
     },
     [place],
@@ -140,7 +142,10 @@ export default function Reader({ items, paused, onTour }: Props) {
       } else if (name === "goto") {
         const byId = args?.id ? list.findIndex((n) => n.id === args.id) : -1;
         const i = byId >= 0 ? byId : findNode(list, String(args?.query ?? ""));
-        if (i < 0) said(`I could not find ${String(args?.query ?? "that")}.`);
+        if (i < 0) {
+          said(`I could not find ${String(args?.query ?? "that")}.`);
+          void speaker.say([`I could not find ${String(args?.query ?? "that")}.`]);
+        }
         else {
           moveTo(i);
           said(`Moved to ${list[i].heading}.`);
@@ -157,7 +162,11 @@ export default function Reader({ items, paused, onTour }: Props) {
         const wanted = args?.figure != null ? figs.find((n) => n.heading.toLowerCase() === `figure ${args.figure}`) : undefined;
         const near = list[at]?.kind === "figure" ? list[at] : figs[0];
         const fig = byId ?? wanted ?? (args?.figure != null || args?.id ? undefined : near);
-        if (!fig) said(args?.figure != null ? `There is no figure ${args.figure}.` : args?.id ? "I could not find that figure." : "There are no figures on this page.");
+        const none = args?.figure != null ? `There is no figure ${args.figure}.` : args?.id ? "I could not find that figure." : "There are no figures on this page.";
+        if (!fig) {
+          said(none);
+          void speaker.say([none]);
+        }
         else {
           moveTo(list.indexOf(fig), { read: false });
           live.current.onTour(fig);

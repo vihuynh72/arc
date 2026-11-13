@@ -2,6 +2,8 @@
 // say(text) resolves when playback ends or is stopped. prefetch(text) buffers without playing.
 // Audio still streaming plays through Web Audio at 1x; complete audio plays through <audio> so
 // speed 1 to 2 keeps pitch. Never uses speechSynthesis.
+import { stopLine } from "@/lib/cues";
+import type { Twin } from "@/lib/types";
 import { b64ToPcm, wavBlob } from "./audio";
 
 const RATE = 24000;
@@ -13,6 +15,14 @@ interface Entry {
   done: boolean;
   failed: boolean;
   wake: Set<() => void>;
+  on?: AskHooks;
+}
+
+/** Push-to-talk callbacks: the caller decides (Snap first) before Gemini's answer or command is used. */
+export interface AskHooks {
+  heard(text: string): void;
+  command(name: string, args: Record<string, unknown>): void;
+  first(): void; // Gemini's first audio or command
 }
 
 let ws: WebSocket | undefined;
@@ -41,11 +51,14 @@ function socket(): WebSocket {
   };
   s.onmessage = (ev) => {
     const m = JSON.parse(ev.data);
+    const e = byId.get(m.id);
+    if (e?.on && (m.type === "audio" || m.type === "command") && !e.chunks.length) e.on.first();
+    if (m.type === "heard") return e?.on?.heard(m.text ?? "");
     if (m.type === "command") {
+      if (e?.on) return e.on.command(m.name, m.args ?? {});
       window.dispatchEvent(new CustomEvent("arc:command", { detail: { name: m.name, args: m.args } }));
       return;
     }
-    const e = byId.get(m.id);
     if (m.type === "error") console.warn("[voice]", m.message);
     if (!e) return;
     if (m.type === "audio") e.chunks.push(b64ToPcm(m.data));
@@ -95,6 +108,16 @@ function request(text: string): Entry {
   return e;
 }
 
+/** Compact page text for the question session: title, headings with first sentences, captions, and an open tour. */
+export function pageContext(twin: Twin, tourId: string | null): string {
+  const first = (t: string) => t.split(/(?<=[.!?])\s+/)[0]?.slice(0, 240) ?? "";
+  const lines = [`Title: ${twin.source.title}`];
+  for (const n of twin.nodes) lines.push(n.kind === "figure" ? `${n.heading} (figure): ${n.text.slice(0, 300)}` : `${n.heading}: ${first(n.text)}`);
+  const tour = twin.nodes.find((n) => n.id === tourId)?.tour;
+  const tourText = tour ? `\n\nOPEN FIGURE TOUR: ${tour.title}. ${tour.overview}\n${tour.stops.map((_, i) => `Stop ${i + 1}: ${stopLine(tour.stops, i)}`).join("\n")}` : "";
+  return lines.join("\n").slice(0, 6000 - tourText.length) + tourText;
+}
+
 /** Page text the question session answers from. */
 export function setContext(text: string) {
   context = text;
@@ -140,6 +163,8 @@ export function setSpeed(v: number) {
   return speed;
 }
 export const getSpeed = () => speed;
+/** The Web Audio context state, for the localhost test hook. */
+export const audioState = () => ctx?.state;
 
 /** Pauses or resumes the current audio. Returns true when now paused. */
 export function togglePause(): boolean {
@@ -246,9 +271,10 @@ function play(e: Entry, fallback?: string): Promise<void> {
 // ---- push-to-talk ----
 
 /** Starts a spoken question; returns its id. Audio chunks go through askAudio. */
-export function askStart(): string {
+export function askStart(on?: AskHooks): string {
   stop();
   const e = entry(); // ask answers are keyed by id, never reused
+  e.on = on;
   send({ type: "ask_start", id: e.id });
   return e.id;
 }
@@ -256,6 +282,9 @@ export const askAudio = (b64: string) => send({ type: "ask_audio", data: b64 });
 
 /** Ends the question (the mic is closed). */
 export const askEnd = () => send({ type: "ask_end" });
+
+/** Drops Gemini's reply to a question: the relay stops sending it and it is never played. */
+export const dropAnswer = (id: string) => send({ type: "cancel", id });
 
 /** Plays the spoken answer to a question, if one comes; resolves when it ends. */
 export function playAnswer(id: string): Promise<void> {

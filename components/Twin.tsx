@@ -1,11 +1,13 @@
 "use client";
 // The whole page below the header: address form, status line, the twin, the reading cursor. Mounted by app/page.tsx.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import LivePanel from "@/components/LivePanel";
 import Reader from "@/components/Reader";
 import Nodes from "@/components/twin/Nodes";
 import Results, { type Result } from "@/components/twin/Results";
 import { setCommandContext } from "@/lib/client/command";
 import { prefetchClip, said, speaker, startWaitTone } from "@/lib/client/reader";
+import { pageContext, setContext } from "@/lib/client/voice";
 import type { Tour, Twin as TwinData, TwinNode } from "@/lib/types";
 
 const DEFAULT_URL = "https://www.mdpi.com/1424-8220/24/6/1935";
@@ -103,13 +105,14 @@ export default function Twin() {
     const data = res?.ok ? ((await res.json().catch(() => null)) as { results?: Result[] } | null) : null;
     if (!data?.results) {
       setStatus("Search is not available right now.");
+      void speaker.say(["Search is not available right now."]);
       return said("Search is not available right now.");
     }
     setTourId(null);
     setFound({ query, results: data.results });
     setStatus(`Found ${plural(data.results.length, "result")} for ${query}.`);
     said(`Found ${plural(data.results.length, "result")} for ${query}.`);
-    speaker.cancel();
+    void speaker.say([`Found ${plural(data.results.length, "result")} for ${query}.`]);
   }, []);
 
   const open = useCallback(
@@ -148,6 +151,10 @@ export default function Twin() {
     () => setCommandContext(items.map((n) => ({ id: n.id, label: n.kind === "figure" ? `${n.heading}: ${n.text.slice(0, 80)}` : n.heading })), tourId !== null),
     [items, tourId],
   );
+  // The question session (Gemini Live) answers from this page, and from the tour when one is open.
+  useEffect(() => {
+    if (twin) setContext(pageContext(twin, tourId));
+  }, [twin, tourId]);
 
   return (
     <>
@@ -190,6 +197,7 @@ export default function Twin() {
         {found ? (
           <Results query={found.query} results={found.results} ids={items.map((i) => i.id)} onOpen={open} onBack={() => setFound(null)} />
         ) : twin ? (
+          <>
           <article aria-labelledby="twin-title">
             <h1 id="twin-title">{twin.source.title}</h1>
             {twin.source.credit && <p className="credit">{twin.source.credit}</p>}
@@ -203,6 +211,12 @@ export default function Twin() {
             </p>
             <Nodes nodes={twin.nodes} pageUrl={twin.source.kind === "page" ? twin.source.url : undefined} tourId={tourId} onTour={(n) => void startTour(n)} onLeave={leaveTour} />
           </article>
+          {twin.source.kind === "page" && (
+            <div className="arc-live">
+              <LivePanel url={twin.source.url} />
+            </div>
+          )}
+          </>
         ) : (
           <h1>Arc</h1>
         )}

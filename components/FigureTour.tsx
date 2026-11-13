@@ -65,6 +65,26 @@ export default function FigureTour({ node, onLeave }: { node: TwinNode; onLeave:
       onLeave();
     },
   };
+  // Spoken and typed commands drive the tour while it is open; "stop" only silences it.
+  const latest = useRef(actions);
+  useEffect(() => {
+    latest.current = actions;
+  });
+  useEffect(() => {
+    const onCommand = (e: Event) => {
+      const name = (e as CustomEvent<{ name: string }>).detail?.name;
+      if (name === "next" || name === "prev") latest.current[name]();
+      else if (name === "read") latest.current.repeat();
+      else if (name === "stop") {
+        run.current++;
+        stop();
+        setPaused(false);
+      }
+    };
+    window.addEventListener("arc:command", onCommand);
+    return () => window.removeEventListener("arc:command", onCommand);
+  }, []);
+
   const keys: Record<string, keyof typeof actions> = {
     ArrowRight: "next",
     ArrowLeft: "prev",
