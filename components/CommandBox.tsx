@@ -9,7 +9,7 @@ import { speaker } from "@/lib/client/reader";
 // the arrows work at once. "/" outside a text field, or Shift+Tab from there, comes back.
 // During a figure tour, back to its key bar instead, where the arrows move between stops.
 const leave = () =>
-  (document.querySelector<HTMLElement>("[data-tour] [role='application'] button") ?? document.getElementById("content"))?.focus({ preventScroll: true });
+  (document.querySelector<HTMLElement>("[data-tour] [role='application']") ?? document.getElementById("content"))?.focus({ preventScroll: true });
 
 // A web address with no spaces, with or without http(s)://.
 const LINK = /^(https?:\/\/)?[\w-]+(\.[\w-]+)+(:\d+)?([/?#]\S*)?$/i;

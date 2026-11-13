@@ -107,8 +107,18 @@ async function fetchClip(text: string, signal: AbortSignal): Promise<string | nu
 /** Ask the server to make (and cache) a clip ahead of time. */
 export const prefetchClip = (text: string) => void (!kokoro.off && fetch(clipUrl(text)).then(learn, () => {}));
 
+const SPEED = "arc-speed"; // the reading speed the user chose, kept like "arc-display"
+const savedRate = () => {
+  try {
+    const v = Number(localStorage.getItem(SPEED));
+    return v >= 1 && v <= 2 ? v : 1.5;
+  } catch {
+    return 1.5;
+  }
+};
+
 class Speaker {
-  rate = 1;
+  rate = savedRate();
   busy = false; // a say() is under way
   recent: { text: string; at: number }[] = []; // what was said lately, so a status line is not said twice (voice first)
   private gen = 0;
@@ -150,6 +160,9 @@ class Speaker {
   setRate(r: number) {
     this.rate = Math.min(2, Math.max(1, Math.round(r * 10) / 10));
     if (this.audio) this.audio.playbackRate = this.rate;
+    try {
+      localStorage.setItem(SPEED, String(this.rate));
+    } catch {}
     return this.rate;
   }
 

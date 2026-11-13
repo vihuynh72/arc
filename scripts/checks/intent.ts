@@ -39,7 +39,7 @@ export default function check() {
   assert.deepEqual(r("back back", res), { name: "prev", steps: 2 });
 
   // again, more, stop
-  for (const w of ["again", "repeat", "say that again", "what", "What?"]) assert.equal(name(w, art()), "read", w);
+  for (const w of ["again", "repeat", "say that again", "what", "What?", "replay", "one more time", "Say that again."]) assert.equal(name(w, art()), "read", w);
   for (const w of ["more", "go on", "read it", "read this", "read more"]) assert.equal(name(w, art()), "continue", w);
   assert.equal(name("more", vid), "continue");
   assert.equal(name("more", res), "read"); // the snippet
@@ -97,6 +97,7 @@ export default function check() {
   // speed
   assert.equal(name("faster", art()), "faster");
   assert.equal(name("slow down", art()), "slower");
+  assert.deepEqual(r("normal speed", art()), { name: "slower", args: { normal: true } });
   assert.match(r("faster", tour)?.say ?? "", /while reading/);
 
   // where am i, help
@@ -153,6 +154,12 @@ export default function check() {
 
   // landing: navigation words explain, nothing moves
   for (const w of ["next", "back", "again", "open it", "tour", "next next", "first", "go back"]) assert.deepEqual(r(w, land), { name: "none", say: LANDING_LINE }, w);
+  // landing: the prepared examples the page links to open at once; elsewhere the same words go on to Snap
+  for (const w of ["Open the paper.", "open a research paper", "example", "show me an example", "please open the paper"]) assert.match(String(r(w, land)?.args?.url), /mdpi\.com\/1424-8220\/24\/6\/1935$/, w);
+  assert.match(String(r("open the video", land)?.args?.url), /youtube\.com\/watch\?v=EPvd-3712U8$/);
+  assert.match(String(r("open the textbook", land)?.args?.url), /openstax\.org\/.+endocrine-pancreas$/);
+  assert.equal(r("open the paper", land)?.name, "open");
+  assert.equal(r("open the paper", base), null);
 
   // whole utterance only: longer sentences go on to Snap and Gemini
   for (const w of [

@@ -76,7 +76,7 @@ type Word =
 const PHRASES: Record<Word, string[]> = {
   next: ["next", "forward", "continue", "keep going", "skip", "next one", "skip this", "skip it", "skip this part", "move on", "onward"],
   prev: ["back", "previous", "prev", "before", "backward", "backwards", "previous one", "go previous", "one back"],
-  again: ["again", "repeat", "say that again", "say again", "repeat that", "what", "pardon", "come again", "once more", "sorry what", "what was that"],
+  again: ["again", "repeat", "say that again", "say again", "repeat that", "what", "pardon", "come again", "once more", "sorry what", "what was that", "replay", "replay that", "replay it", "one more time", "say it again", "read it again"],
   more: ["more", "go on", "read it", "read this", "read more", "tell me more", "keep reading", "read on", "read that"],
   stop: ["stop", "quiet", "pause", "shh", "shhh", "shush", "hush", "be quiet", "silence", "enough", "stop talking", "stop reading"],
   open: ["open", "open it", "open this", "open that", "that one", "this one", "go there", "select", "choose", "pick", "open this one", "open that one", "pick this", "pick that", "choose this", "this page", "that page", "open this page"],
@@ -86,7 +86,7 @@ const PHRASES: Record<Word, string[]> = {
   yes: ["yes", "yeah", "yep", "yup", "ok", "okay", "sure", "do it", "go ahead", "please do", "alright", "all right", "yes please", "yeah sure", "sure thing"],
   no: ["no", "nope", "cancel", "never mind", "nevermind", "no thanks", "not now", "no thank you", "don't", "dont"],
   faster: ["faster", "speed up", "quicker", "more quickly", "read faster", "talk faster", "a bit faster"],
-  slower: ["slower", "slow down", "more slowly", "read slower", "talk slower", "a bit slower"],
+  slower: ["slower", "slow down", "more slowly", "read slower", "talk slower", "a bit slower", "normal speed", "normal", "regular speed", "speed one"],
   louder: ["louder", "speak up", "volume up", "turn it up"],
   where: ["where am i", "where", "where are we", "where am i now", "what page is this", "where is this"],
   help: ["what can i do", "help", "options", "what can i say", "commands", "help me", "what now", "what do i do"],
@@ -173,11 +173,23 @@ const DISPLAY_PHRASES: Record<string, string> = {
   "reset display": "reset", "reset the display": "reset",
 };
 
+// The prepared examples the landing screen links to (components/Landing.tsx); only said on the landing.
+const PAPER = "https://www.mdpi.com/1424-8220/24/6/1935";
+const VIDEO = "https://www.youtube.com/watch?v=EPvd-3712U8";
+const TEXTBOOK = "https://openstax.org/books/anatomy-and-physiology-2e/pages/17-9-the-endocrine-pancreas";
+const EXAMPLES: Record<string, string> = {
+  "open the paper": PAPER, "open a paper": PAPER, "open the research paper": PAPER, "open a research paper": PAPER,
+  example: PAPER, "an example": PAPER, "show me an example": PAPER, "open an example": PAPER, "open the example": PAPER,
+  "open the video": VIDEO, "open a video": VIDEO, "open the video outline": VIDEO,
+  "open the textbook": TEXTBOOK, "open a textbook": TEXTBOOK, "open the textbook chapter": TEXTBOOK,
+};
+
 /** The whole utterance as a command for this context, or null to let Snap and Gemini decide. */
 export function resolveLocal(utterance: string, c: Ctx): Resolved | null {
   const s = normalise(utterance);
   if (!s || s.split(" ").length > MAX_WORDS) return null;
   if (DISPLAY_PHRASES[s]) return { name: "display", args: { setting: DISPLAY_PHRASES[s] } };
+  if (c.mode === "landing" && EXAMPLES[s]) return { name: "open", args: { url: EXAMPLES[s] } };
   const go = s.replace(/^go (?:to )?(?:the )?(?=\S)/, ""); // "go next", "go to the top"; "go back" and "go on" are phrases of their own
   const onFigure = c.onKind === "figure";
   const exact = LOOKUP.get(s) ?? (go !== s && !LOOKUP.has(s) ? LOOKUP.get(go) : undefined);
@@ -204,7 +216,7 @@ export function resolveLocal(utterance: string, c: Ctx): Resolved | null {
   if (word === "help") return { name: "none", say: HELP[c.mode] };
   if (word === "where") return { name: "none", say: where(c) };
   if (word === "louder") return { name: "none", say: "Use your computer's volume keys to make me louder." };
-  if (word === "faster" || word === "slower") return c.mode === "landing" || c.mode === "tour" ? { name: "none", say: `Say ${word} while reading a page.` } : { name: word };
+  if (word === "faster" || word === "slower") return c.mode === "landing" || c.mode === "tour" ? { name: "none", say: `Say ${word} while reading a page.` } : /normal|regular|one/.test(s) ? { name: word, args: { normal: true } } : { name: word };
 
   if (c.mode === "landing") return word && !NAV.has(word) ? null : { name: "none", say: LANDING_LINE };
 

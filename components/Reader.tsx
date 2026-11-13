@@ -14,16 +14,19 @@ type Props = {
 const nodeEl = (id: string) => document.querySelector<HTMLElement>(`[data-node-id="${id}"]`);
 
 // A figure parks by its card top (image above, ringed caption below); anything else parks by its ringed element.
+const OFFER = "Press Enter or say tour to explore it.";
+
 const parkEl = (el: HTMLElement, kind: string) => (kind === "figure" ? el : (el.querySelector<HTMLElement>("[data-cursor]") ?? el));
 
 export default function Reader({ items, paused, onTour }: Props) {
   const [index, setIndex] = useState(-1);
-  const [rate, setRate] = useState(1);
+  const [rate, setRate] = useState(1.5);
+  useEffect(() => setRate(speaker.rate), []); // the saved speed (localStorage) is only known in the browser
   const ring = useRef<HTMLDivElement>(null);
   const readOnRef = useRef<(from?: number) => Promise<void>>(async () => {}); // moveTo is defined before readOn
   // progUntil: Arc's own scroll is under way, ignore scroll events. settled: the index last announced. raf/timer: the scroll follower.
   // hist: places before each jump, for "go back". reading: bumped by any key or command, ends "keep reading".
-  const live = useRef({ items, index: -1, paused, onTour, progUntil: 0, settled: -1, raf: 0, timer: 0, hist: [] as number[], reading: 0 });
+  const live = useRef({ items, index: -1, paused, onTour, progUntil: 0, settled: -1, raf: 0, timer: 0, hist: [] as number[], reading: 0, userAt: -1e9, keyAt: 0 });
   useEffect(() => {
     live.current.items = items;
     live.current.paused = paused;
@@ -66,14 +69,15 @@ export default function Reader({ items, paused, onTour }: Props) {
       const figureIndex = node.kind === "figure" ? list.slice(0, i + 1).filter((n) => n.kind === "figure").length : undefined;
       window.dispatchEvent(new CustomEvent("arc:cursor", { detail: { id: node.id, kind: node.kind, heading: node.heading, figureIndex, back: live.current.hist.length > 0 } }));
       if (opts.read === false) return;
-      if (!voiceFirst()) return void speaker.say(nodeSpeech(node));
+      // Arriving on a figure by any means: its caption, then the tour offer ("yes", "tour", Enter start it).
+      const fig = node.kind === "figure" && !!node.image && !live.current.paused;
+      if (fig) window.dispatchEvent(new CustomEvent("arc:offer", { detail: { name: "tour", args: { id: node.id } } }));
+      if (!voiceFirst()) return void speaker.say([...nodeSpeech(node), ...(fig ? [OFFER] : [])]);
       // Voice first: where it landed, the item, the tour offer on a figure; then reading runs on to the next items.
-      const fig = node.kind === "figure" && !!node.image;
       const mine = live.current.reading;
-      void speaker.say([`${i + 1} of ${list.length}.`, ...nodeSpeech(node), ...(fig ? ["Say tour to explore it."] : [])]).then((ok) => {
+      void speaker.say([`${i + 1} of ${list.length}.`, ...nodeSpeech(node), ...(fig ? [OFFER] : [])]).then((ok) => {
         if (!fig && ok && mine === live.current.reading && live.current.index === i) void readOnRef.current(i + 1);
       });
-      if (fig) window.dispatchEvent(new CustomEvent("arc:offer", { detail: { name: "tour", args: { id: node.id } } }));
     },
     [place],
   );
@@ -113,8 +117,8 @@ export default function Reader({ items, paused, onTour }: Props) {
     for (let i = from ?? Math.max(L.index, 0); i < L.items.length && mine === L.reading; i++) {
       moveTo(i, { read: false });
       const n = L.items[i];
-      const fig = voiceFirst() && n.kind === "figure" && !!n.image;
-      const ok = await speaker.say(fig ? [...nodeSpeech(n), "Say tour to explore it."] : nodeSpeech(n));
+      const fig = n.kind === "figure" && !!n.image;
+      const ok = await speaker.say(fig ? [...nodeSpeech(n), OFFER] : nodeSpeech(n));
       if (fig && ok) window.dispatchEvent(new CustomEvent("arc:offer", { detail: { name: "tour", args: { id: n.id } } }));
       if (!ok || fig || L.index !== i) break;
     }
@@ -123,17 +127,31 @@ export default function Reader({ items, paused, onTour }: Props) {
     readOnRef.current = readOn;
   }, [readOn]);
 
-  const faster = useCallback((by: number) => setRate(speaker.setRate(speaker.rate + by)), []);
+  const faster = useCallback((by: number) => {
+    const r = speaker.setRate(speaker.rate + by);
+    setRate(r);
+    void speaker.say([`Speed ${r.toFixed(1)}.`]);
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (["Shift", "Control", "Alt", "Meta"].includes(e.key)) return;
+      const t = e.target as HTMLElement;
+      const typing = !!t.closest?.("input, textarea, select, [contenteditable='true']");
+      if (["PageUp", "PageDown"].includes(e.key) && !typing) live.current.userAt = performance.now(); // the user scrolls by key
+      const arrow = e.key.startsWith("Arrow");
+      // A held arrow: act on the first press, then at most every 350 ms, so a press held a little long never moves two.
+      if (arrow && e.repeat && !live.current.paused && !typing && performance.now() - live.current.keyAt < 350) return void e.preventDefault();
       speaker.cancel(); // any key stops the voice at once
       live.current.reading++;
+      if (live.current.paused && (e.key === "r" || e.key === "R") && !typing && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        window.dispatchEvent(new CustomEvent("arc:command", { detail: { name: "read" } })); // R in a tour repeats the stop
+        return void e.preventDefault();
+      }
       if (live.current.paused || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
-      const t = e.target as HTMLElement;
-      if (t.closest("input, textarea, select, [contenteditable='true']")) return;
+      if (typing) return;
       const k = e.key;
+      if (arrow) live.current.keyAt = performance.now();
       if (k === "Enter" && t.closest("button, a, summary")) return; // let the control act
       if (k === "ArrowDown" || k === "ArrowRight") step(1, e.shiftKey && k === "ArrowDown");
       else if (k === "ArrowUp" || k === "ArrowLeft") step(-1, e.shiftKey && k === "ArrowUp");
@@ -142,6 +160,7 @@ export default function Reader({ items, paused, onTour }: Props) {
         if (n?.kind === "figure" && n.image) live.current.onTour(n); // Enter on a figure starts its tour
         else readAgain();
       }
+      else if (k === "r" || k === "R") readAgain(); // replay on every kind of item, figures too
       else if (k === "+" || k === "=") faster(0.1);
       else if (k === "-" || k === "_") faster(-0.1);
       else return;
@@ -198,7 +217,11 @@ export default function Reader({ items, paused, onTour }: Props) {
     const L = live.current;
     const born = performance.now() + 1000;
     L.progUntil = born; // a new page may clamp the scroll position
-    const idle = () => L.paused || performance.now() < L.progUntil || !!document.activeElement?.closest("input, textarea, select, [contenteditable='true']");
+    // Only a scroll the user is making moves the cursor: a wheel, touch, Page key or scrollbar press in the last 250 ms.
+    // Arc's own smooth scrolls, images and figures loading, panels resizing and anchor jumps never do (they skipped items).
+    const idle = () => L.paused || performance.now() - L.userAt > 250 || performance.now() < L.progUntil || !!document.activeElement?.closest("input, textarea, select, [contenteditable='true']");
+    const mark = () => void (L.userAt = performance.now());
+    const onBar = (e: PointerEvent) => void (e.clientX >= document.documentElement.clientWidth && mark()); // the scrollbar sits outside clientWidth
     const follow = () => {
       L.raf = 0;
       let best = -1;
@@ -221,6 +244,7 @@ export default function Reader({ items, paused, onTour }: Props) {
     };
     const onScroll = () => {
       if (idle()) return;
+      L.userAt = performance.now(); // keep following while the user's scroll is still moving (momentum, a dragged bar)
       L.raf ||= requestAnimationFrame(follow);
       clearTimeout(L.timer);
       L.timer = window.setTimeout(() => {
@@ -231,7 +255,13 @@ export default function Reader({ items, paused, onTour }: Props) {
     const done = () => void (performance.now() > born && (L.progUntil = 0));
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("scrollend", done);
+    window.addEventListener("wheel", mark, { passive: true });
+    window.addEventListener("touchmove", mark, { passive: true });
+    window.addEventListener("pointerdown", onBar);
     return () => {
+      window.removeEventListener("wheel", mark);
+      window.removeEventListener("touchmove", mark);
+      window.removeEventListener("pointerdown", onBar);
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("scrollend", done);
       cancelAnimationFrame(L.raf);
@@ -260,14 +290,7 @@ export default function Reader({ items, paused, onTour }: Props) {
       live.current.reading++;
       const jump = (i: number) => void (i !== at && at >= 0 && live.current.hist.push(at));
       // Landing on a figure by a jump: read its caption, then offer the tour ("yes" or "tour" starts it).
-      const land = (i: number) => {
-        const n = list[i];
-        moveTo(i, { read: n.kind !== "figure" || !n.image });
-        if (n.kind === "figure" && n.image) {
-          void speaker.say([...nodeSpeech(n), "Say tour to explore it."]);
-          window.dispatchEvent(new CustomEvent("arc:offer", { detail: { name: "tour", args: { id: n.id } } }));
-        }
-      };
+      const land = (i: number) => moveTo(i); // a figure reads its caption and offers the tour
       if (name === "next" || name === "prev") {
         const n = step(name === "next" ? 1 : -1, false, Math.min(Number(args?.steps) || 1, 10));
         said(n ? `Moved to ${n.heading}.` : name === "next" ? "That is the last one." : "That is the first one.");
@@ -278,7 +301,6 @@ export default function Reader({ items, paused, onTour }: Props) {
         const n = step(by, figure ? "figure" : true);
         if (n) {
           if (from >= 0) live.current.hist.push(from);
-          if (figure) land(live.current.index);
           said(`Moved to ${n.heading}.`);
         } else said(figure ? "No more figures." : by > 0 ? "That is the last one." : "That is the first one.");
       } else if (name === "return") {
@@ -294,9 +316,9 @@ export default function Reader({ items, paused, onTour }: Props) {
       } else if (name === "continue") {
         void readOn();
       } else if (name === "faster" || name === "slower") {
-        const r = speaker.setRate(speaker.rate + (name === "faster" ? 0.1 : -0.1));
+        const r = speaker.setRate(args?.normal ? 1 : speaker.rate + (name === "faster" ? 0.1 : -0.1));
         setRate(r);
-        const line = name === "faster" && r >= 2 ? "That is the fastest." : name === "slower" && r <= 1 ? "That is the slowest." : `Speed ${r.toFixed(1)}.`;
+        const line = args?.normal ? "Speed 1.0." : name === "faster" && r >= 2 ? "That is the fastest." : name === "slower" && r <= 1 ? "That is the slowest." : `Speed ${r.toFixed(1)}.`;
         said(line);
         void speaker.say([line]);
       } else if (name === "goto") {
@@ -347,7 +369,7 @@ export default function Reader({ items, paused, onTour }: Props) {
       <div ref={ring} className="arc-ring" data-on="false" />
       <div
         role="application"
-        aria-label="Reading controls. Down and Up arrows move, with Shift by heading. Enter reads again, or tours a figure. Plus and minus change speed."
+        aria-label="Reading controls. Down and Up arrows move, with Shift by heading. Enter reads again, or tours a figure. R replays. Plus and minus change speed."
         className="reader"
       >
         <p className="reader-pos">
