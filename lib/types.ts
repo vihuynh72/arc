@@ -17,6 +17,8 @@ export interface Tour {
   source?: string;
   image?: string; // local /public path when the figure is a prepared fixture
   stops: TourStop[];
+  /** Charts only: "quick" is the light model's tour while the data is still being read; "full" is the data-built one. */
+  stage?: "quick" | "full";
   /** Charts only: data read by the chart model and checked in code; the pointer scrubs it. Axis values in axis units. */
   chart?: {
     type: string;

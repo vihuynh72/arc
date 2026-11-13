@@ -2,9 +2,9 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { chartTour, cleanBox, cleanChart, type RawChart } from "../chart";
-import { GEMINI_CHART_MODEL } from "../models";
+import { GEMINI_CHART_MODELS } from "../models";
 import type { Tour, TourStop } from "../types";
-import { generateJson, type Part } from "./gemini";
+import { generateJson, generateJsonChain, type Part } from "./gemini";
 
 const PREPARED = [
   { match: "sensors-24-01935-g001", file: "fixtures/lower/tour-final.json", image: "/fixtures/lower/figure-1280.jpg" },
@@ -22,7 +22,7 @@ For each stop:
 - box_2d: [ymin, xmin, ymax, xmax] on a 0 to 1000 scale, tightly around the drawn structure itself, not just its text label.
 - confidence: "high" if you are sure of the box, "medium" or "low" otherwise.
 Also give title (a short name for the figure) and overview (two short sentences). Use only what is visible; do not guess.
-Also give kind: "chart" if the figure plots data (line, bar, scatter, pie, curves of values, with or without axes), "diagram" for parts and connections, "photo", or "other" (tables, matrices, heatmaps, mixed).
+Also give kind: "chart" if the figure plots or encodes data: line, bar (grouped or stacked), histogram, scatter, pie or donut, box plot, heat map or colour-coded matrix (confusion matrix, correlation matrix), curves of values, with or without axes. "diagram" for parts and connections, flow charts and block diagrams. "photo", or "other" (tables of text, mixed).
 
 If the figure is a chart or plot (line, bar, scatter, signals, matrix), the student needs the data and the message, not the look:
 - overview: the takeaway in one or two sentences: the kind of chart, what is compared, and the main finding with numbers.
@@ -58,11 +58,15 @@ const SCHEMA = {
 type Raw = { title?: string; overview?: string; stops?: Partial<TourStop>[]; kind?: string };
 
 export const CHART_PROMPT = `Read this chart for a blind student. Their software will compute every count and extreme from your points, so read the points as carefully as you can.
-- chart_type: line, bar, scatter, pie or other. title: the printed title, or a short name.
+- chart_type: line; bar (one category per bar or bar group); stacked_bar; histogram; scatter; pie (also donut); box (box plot); heatmap (also a colour-coded matrix); other. title: the printed title, or a short name.
 - takeaway: one or two sentences: what is compared and the main finding.
 - x_axis and y_axis: label (the printed axis title), unit (null when none is printed), min and max: the axis values at the LEFT and RIGHT (or BOTTOM and TOP) edges of the plot frame, estimated past the last printed tick if the frame extends beyond it; null when no numbers are printed.
 - plot_area: [ymin, xmin, ymax, xmax] on a 0 to 1000 scale of the whole image: the rectangle of the plot frame between the axes. legend_area: the same for the legend, or omit it.
 - series: one per line, bar group or point set, named by the legend (or by what it shows), with its colour as a word. points: in AXIS units, sampled left to right, 8 to 60 per series: include every peak and every trough (the exact top and bottom of each), the first and last point, and points between them where the curve bends. Bars: one point per bar, x = 0, 1, 2 ..., label = the category.
+- scatter: one series per point set; sample up to 60 points spread over the whole cloud, including any outliers, each in axis units.
+- pie: ONE series named "Slices"; one point per slice: label = the slice name, y = its percentage (or its printed value), x = 0, 1, 2 ... Axes: label "" and min/max null.
+- box: fill boxes, one per group: label, min and max (the whisker ends), q1, median, q3, in axis units. series may be empty.
+- heatmap: fill cells, one per cell you can read: row label, column label, value (the printed number, or the value the colour scale gives). series may be empty.
 - notable: up to three short sentences on peaks, crossings, gaps, marked regions, using words more than numbers.
 - confidence: high, medium or low for the values you read.
 - unreadable: if values cannot be read (no axis numbers), give the reason here and return series with names and colours but NO points. Otherwise null.`;
@@ -70,7 +74,7 @@ export const CHART_PROMPT = `Read this chart for a blind student. Their software
 export const CHART_SCHEMA = {
   type: "OBJECT",
   properties: {
-    chart_type: { type: "STRING", enum: ["line", "bar", "scatter", "pie", "other"] },
+    chart_type: { type: "STRING", enum: ["line", "bar", "stacked_bar", "histogram", "scatter", "pie", "box", "heatmap", "other"] },
     title: { type: "STRING" },
     takeaway: { type: "STRING" },
     x_axis: { type: "OBJECT", properties: { label: { type: "STRING" }, unit: { type: "STRING", nullable: true }, min: { type: "NUMBER", nullable: true }, max: { type: "NUMBER", nullable: true } }, required: ["label", "min", "max"] },
@@ -89,6 +93,11 @@ export const CHART_SCHEMA = {
         required: ["name", "points"],
       },
     },
+    boxes: {
+      type: "ARRAY",
+      items: { type: "OBJECT", properties: { label: { type: "STRING" }, min: { type: "NUMBER" }, q1: { type: "NUMBER" }, median: { type: "NUMBER" }, q3: { type: "NUMBER" }, max: { type: "NUMBER" } }, required: ["label", "min", "q1", "median", "q3", "max"] },
+    },
+    cells: { type: "ARRAY", items: { type: "OBJECT", properties: { row: { type: "STRING" }, col: { type: "STRING" }, value: { type: "NUMBER" } }, required: ["row", "col", "value"] } },
     notable: { type: "ARRAY", items: { type: "STRING" } },
     confidence: { type: "STRING", enum: ["high", "medium", "low"] },
     unreadable: { type: "STRING", nullable: true },
@@ -96,66 +105,101 @@ export const CHART_SCHEMA = {
   required: ["chart_type", "title", "takeaway", "x_axis", "y_axis", "plot_area", "series", "notable", "confidence"],
 };
 
-/** One call to the chart model; null when it fails or the data does not validate (the caller keeps the plain tour). */
-export async function readChart(image: Part, source: string, model = GEMINI_CHART_MODEL): Promise<Tour | null> {
+/** The chart model chain; null when every model fails or the data does not validate (the caller keeps the quick tour). */
+export async function readChart(image: Part, source: string, models = GEMINI_CHART_MODELS): Promise<Tour | null> {
   try {
-    const raw = await generateJson<RawChart>([{ text: CHART_PROMPT }, image], CHART_SCHEMA, { model, timeoutMs: 90_000 });
+    const t = Date.now();
+    const { data: raw, model, tried } = await generateJsonChain<RawChart>([{ text: CHART_PROMPT }, image], CHART_SCHEMA, models, 60_000);
+    console.log(`[tour] chart read by ${model} in ${Date.now() - t} ms${tried.length > 1 ? ` (tried ${tried.join(", ")})` : ""}`);
     const chart = cleanChart(raw);
     if (!chart) return null;
-    return chartTour(
-      chart,
-      {
-        title: raw.title?.trim() || "Chart",
-        takeaway: raw.takeaway?.trim() ?? "",
-        notable: Array.isArray(raw.notable) ? raw.notable.filter((t) => typeof t === "string") : [],
-        unreadable: raw.unreadable?.trim() || null,
-        confidence: raw.confidence ?? "low",
-      },
-      source,
-    );
+    return {
+      ...chartTour(
+        chart,
+        {
+          title: raw.title?.trim() || "Chart",
+          takeaway: raw.takeaway?.trim() ?? "",
+          notable: Array.isArray(raw.notable) ? raw.notable.filter((t) => typeof t === "string") : [],
+          unreadable: raw.unreadable?.trim() || null,
+          confidence: raw.confidence ?? "low",
+        },
+        source,
+      ),
+      stage: "full",
+    };
   } catch (e) {
     console.error("readChart failed:", (e as Error).message);
     return null;
   }
 }
 
-export async function getTour(imageUrl: string): Promise<Tour | null> {
-  const prepared = PREPARED.find((p) => imageUrl.includes(p.match));
-  if (prepared) {
-    const tour: Tour = JSON.parse(await readFile(prepared.file, "utf8"));
-    return { ...tour, image: prepared.image };
-  }
+const hash = (u: string) => createHash("sha1").update(u).digest("hex");
+const fullFile = (u: string) => `.cache/tours/${hash(u)}.json`;
+const quickFile = (u: string) => `.cache/tours/${hash(u)}.quick.json`;
+const readJson = (f: string) => readFile(f, "utf8").then((t) => JSON.parse(t) as Tour, () => null);
+async function save(f: string, tour: Tour) {
+  await mkdir(".cache/tours", { recursive: true });
+  await writeFile(f, JSON.stringify(tour));
+}
 
-  const cacheFile = `.cache/tours/${createHash("sha1").update(imageUrl).digest("hex")}.json`;
-  try {
-    return JSON.parse(await readFile(cacheFile, "utf8"));
-  } catch {}
+export async function prepared(imageUrl: string): Promise<Tour | null> {
+  const p = PREPARED.find((q) => imageUrl.includes(q.match));
+  return p ? { ...(JSON.parse(await readFile(p.file, "utf8")) as Tour), image: p.image } : null;
+}
 
+/** The best tour already on disk, without calling a model: prepared, then full, then quick. */
+export async function cachedTour(imageUrl: string): Promise<Tour | null> {
+  return (await prepared(imageUrl)) ?? (await readJson(fullFile(imageUrl))) ?? (await readJson(quickFile(imageUrl)));
+}
+
+async function fetchImage(imageUrl: string): Promise<Part | null> {
   if (!/^https?:\/\//i.test(imageUrl)) return null;
-  try {
-    const res = await fetch(imageUrl, { headers: { "user-agent": CHROME_UA }, signal: AbortSignal.timeout(30_000) });
-    if (!res.ok) return null;
-    const mime = (res.headers.get("content-type") ?? "").split(";")[0].trim();
-    if (!mime.startsWith("image/")) return null;
-    const data = Buffer.from(await res.arrayBuffer()).toString("base64");
-    const image = { inlineData: { mimeType: mime, data } };
-    const raw = await generateJson<Raw>([{ text: PROMPT }, image], SCHEMA);
+  const res = await fetch(imageUrl, { headers: { "user-agent": CHROME_UA }, signal: AbortSignal.timeout(20_000) });
+  if (!res.ok) return null;
+  const mime = (res.headers.get("content-type") ?? "").split(";")[0].trim();
+  if (!mime.startsWith("image/")) return null;
+  return { inlineData: { mimeType: mime, data: Buffer.from(await res.arrayBuffer()).toString("base64") } };
+}
 
-    const stops: TourStop[] = [];
-    for (const s of raw.stops ?? []) {
-      const box = cleanBox(s.box_2d);
-      if (!box || !s.label || !s.says) continue;
-      const confidence = ["high", "medium", "low"].includes(s.confidence ?? "") ? s.confidence! : "low";
-      stops.push({ n: stops.length + 1, label: s.label, says: s.says, box_2d: box, confidence });
-      if (stops.length === 10) break;
-    }
-    // Charts get a second, stronger reading; the tour is then built in code from its data.
-    const chart = raw.kind === "chart" ? await readChart(image, imageUrl) : null;
-    if (!chart && stops.length < 3) return null;
-    const tour: Tour = chart ?? { title: raw.title ?? "Figure", overview: raw.overview ?? "", source: imageUrl, stops };
-    await mkdir(".cache/tours", { recursive: true });
-    await writeFile(cacheFile, JSON.stringify(tour));
-    return tour;
+/** Stage one: the light model's tour. A chart's is saved as stage "quick" (a full one follows); any other kind is final. */
+export async function quickTour(imageUrl: string): Promise<Tour | null> {
+  const have = await cachedTour(imageUrl);
+  if (have) return have;
+  const image = await fetchImage(imageUrl);
+  if (!image) return null;
+  const raw = await generateJson<Raw>([{ text: PROMPT }, image], SCHEMA, { timeoutMs: 25_000 });
+  const stops: TourStop[] = [];
+  for (const s of raw.stops ?? []) {
+    const box = cleanBox(s.box_2d);
+    if (!box || !s.label || !s.says) continue;
+    const confidence = ["high", "medium", "low"].includes(s.confidence ?? "") ? s.confidence! : "low";
+    stops.push({ n: stops.length + 1, label: s.label, says: s.says, box_2d: box, confidence });
+    if (stops.length === 10) break;
+  }
+  const isChart = raw.kind === "chart";
+  if (stops.length < 3) {
+    if (!isChart) return null;
+    stops.splice(0, stops.length, { n: 1, label: "Chart", says: raw.overview ?? "A chart.", box_2d: [0, 0, 1000, 1000], confidence: "low" });
+  }
+  const tour: Tour = { title: raw.title ?? "Figure", overview: raw.overview ?? "", source: imageUrl, stops, ...(isChart ? { stage: "quick" as const } : {}) };
+  await save(isChart ? quickFile(imageUrl) : fullFile(imageUrl), tour);
+  return tour;
+}
+
+/** Stage two, charts only: the data-read, code-built tour. Returns the final tour, or null when the chart read failed. */
+export async function fullTour(imageUrl: string): Promise<Tour | null> {
+  const quick = await quickTour(imageUrl);
+  if (!quick || quick.stage !== "quick") return quick;
+  const image = await fetchImage(imageUrl);
+  const chart = image ? await readChart(image, imageUrl) : null;
+  if (chart) await save(fullFile(imageUrl), chart);
+  return chart;
+}
+
+/** Old single-call entry point (scripts): the fullest tour, waiting for both stages. */
+export async function getTour(imageUrl: string): Promise<Tour | null> {
+  try {
+    return (await fullTour(imageUrl)) ?? (await cachedTour(imageUrl));
   } catch (e) {
     console.error("getTour failed:", (e as Error).message);
     return null;

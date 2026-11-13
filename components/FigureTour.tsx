@@ -4,20 +4,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { pitch, pointLine, reading, seriesOfStop, stats, valueAt, xAtPointer } from "@/lib/chart";
 import { hitStop, nearestHint, stopLine } from "@/lib/cues";
-import type { TwinNode } from "@/lib/types";
+import type { Tour, TwinNode } from "@/lib/types";
 import { chime, getSpeed, prefetch, say, setSpeed, stop, tick, togglePause, tone } from "@/lib/client/voice";
 
 const SHOW = new Set(["hand-fixed", "high"]);
 const POINTER_HINT = "You can also move your pointer over the picture to feel where each part is.";
 const CHART_HINT = "Move your pointer across the chart to hear its shape, or hold Shift with the arrow keys to step through values.";
+const STILL_READING = "I am still reading the exact values. You can explore the layout now.";
+const VALUES_READY = "The values are ready. Hold Shift with the arrow keys to step through them, or move your pointer across the chart.";
 
 export default function FigureTour({ node, onLeave }: { node: TwinNode; onLeave: () => void }) {
-  const tour = node.tour!;
+  // A chart's quick tour (stage "quick") is swapped for the data-built one when it arrives, without moving the student.
+  const [tour, setTour] = useState<Tour>(node.tour!);
   const stops = tour.stops;
   const chart = tour.chart;
   const hint = chart ? CHART_HINT : POINTER_HINT;
   const base = `${tour.overview} ${stops.length} stops. Press Right Arrow to begin.`;
-  const intro = `${base} ${hint}`;
+  const intro = `${base} ${tour.stage === "quick" ? STILL_READING : hint}`;
   const [i, setI] = useState(-1); // -1: overview
   const [speed, setSpeedState] = useState(getSpeed());
   const [paused, setPaused] = useState(false);
@@ -56,15 +59,66 @@ export default function FigureTour({ node, onLeave }: { node: TwinNode; onLeave:
     [line, stops.length],
   );
 
+  // The intro is spoken once on open; swapping in the full tour must not restart it or cut a sentence.
+  const opening = useRef(speak);
   useEffect(() => {
     const r = run;
     pad.current?.focus();
-    speak(-1, false);
+    opening.current(-1, false);
     return () => {
       r.current++;
       stop();
     };
-  }, [speak]);
+  }, []);
+
+  // Build this figure next (the queue may be busy with others), and for a quick chart tour wait for the full one.
+  const at = useRef({ i, stops });
+  useEffect(() => {
+    at.current = { i, stops };
+  });
+  useEffect(() => {
+    const image = node.image?.url;
+    if (!image) return;
+    void fetch("/api/tour/prioritise", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ image }) }).catch(() => null);
+    if (node.tour?.stage !== "quick") return;
+    let live = true;
+    let timer = 0;
+    const started = Date.now();
+    const poll = async () => {
+      const res = await fetch(`/api/tour?image=${encodeURIComponent(image)}&want=full`).catch(() => null);
+      if (!live) return;
+      if (res?.status === 200) {
+        const full = (await res.json().catch(() => null)) as Tour | null;
+        if (!live || !full?.stops?.length) return;
+        // Same stop by label if it exists, else the same index clamped; the overview (-1) stays the overview.
+        const { i: k, stops: old } = at.current;
+        if (k >= 0) {
+          const same = full.stops.findIndex((s) => s.label === old[k]?.label);
+          setI(same >= 0 ? same : Math.min(k, full.stops.length - 1));
+        }
+        setTour(full);
+        // Announce once, after whatever is being said now has finished.
+        const announce = () => {
+          if (!live) return;
+          if (talking.current) return void (timer = window.setTimeout(announce, 300));
+          const n = ++run.current;
+          talking.current = n;
+          say(VALUES_READY).then(() => {
+            if (talking.current === n) talking.current = 0;
+          });
+        };
+        announce();
+        return;
+      }
+      // 202: still reading. Anything else (failed, offline) or 90 s: keep the quick tour and say nothing more.
+      if (res?.status === 202 && Date.now() - started < 90_000) timer = window.setTimeout(poll, 2000);
+    };
+    timer = window.setTimeout(poll, 2000);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [node.image?.url, node.tour?.stage]);
 
   // Short labels are fetched up front so entering a part by pointer answers at once. After the speak effect: its stop() would cancel them.
   useEffect(() => {

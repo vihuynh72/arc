@@ -20,7 +20,17 @@ export interface RawChart {
   notable?: string[];
   confidence?: string;
   unreadable?: string | null;
+  /** Box plots: one per group. */
+  boxes?: { label?: string; min?: unknown; q1?: unknown; median?: unknown; q3?: unknown; max?: unknown }[];
+  /** Heat maps and matrices: one per readable cell. */
+  cells?: { row?: string; col?: string; value?: unknown }[];
 }
+
+/** Kinds read from the picture. Pie, box and heat map get stops only (no pitch scrub): their x axis is not a line to follow. */
+export const CHART_TYPES = ["line", "bar", "stacked_bar", "histogram", "scatter", "pie", "box", "heatmap"];
+type BoxStat = { label: string; min: number; q1: number; median: number; q3: number; max: number };
+type Cell = { row: string; col: string; value: number };
+export type CleanChart = Chart & { legend: Box | null; boxes?: BoxStat[]; cells?: Cell[] };
 
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
@@ -61,7 +71,7 @@ function cleanPoints(raw: { x?: unknown; y?: unknown; label?: string }[] | undef
 }
 
 /** Model output to chart data. Series without readable points stay listed by name with no points. */
-export function cleanChart(raw: RawChart): (Chart & { legend: Box | null }) | null {
+export function cleanChart(raw: RawChart): CleanChart | null {
   const plot = cleanBox(raw.plot_area);
   if (!plot) return null;
   const x = axis(raw.x_axis);
@@ -70,8 +80,27 @@ export function cleanChart(raw: RawChart): (Chart & { legend: Box | null }) | nu
     .filter((s) => s.name)
     .slice(0, 6)
     .map((s) => ({ name: s.name!.trim(), ...(s.color ? { color: s.color } : {}), points: raw.unreadable ? [] : cleanPoints(s.points, x, y) }));
-  const type = ["line", "bar", "scatter", "pie"].includes(raw.chart_type ?? "") ? raw.chart_type! : "other";
-  return { type, x, y, plot, series, legend: cleanBox(raw.legend_area) };
+  const type = CHART_TYPES.includes(raw.chart_type ?? "") ? raw.chart_type! : "other";
+  const out: CleanChart = { type, x, y, plot, series, legend: cleanBox(raw.legend_area) };
+  if (type === "pie" && !raw.unreadable) {
+    // Slices: label and value (percent or raw), positive only; shares are recomputed in code so they sum to 100.
+    const sl = (raw.series?.[0]?.points ?? []).map((p) => ({ label: (p.label ?? "").trim(), v: num(p.y) })).filter((p) => p.label && p.v !== null && p.v > 0);
+    const total = sl.reduce((a, p) => a + p.v!, 0);
+    out.series = sl.length >= 2 ? [{ name: "Slices", points: sl.map((p, k) => ({ x: k, y: (p.v! / total) * 100, label: p.label })) }] : [];
+  }
+  if (type === "box" && !raw.unreadable) {
+    out.boxes = (raw.boxes ?? []).flatMap((b) => {
+      const v = [b.min, b.q1, b.median, b.q3, b.max].map(num);
+      // Five numbers in order, else the group is not kept: a wrong quartile is worse than none.
+      if (!b.label || v.some((n) => n === null) || v.some((n, k) => k && n! < v[k - 1]!)) return [];
+      const [min, q1, median, q3, max] = v as number[];
+      return [{ label: b.label.trim(), min, q1, median, q3, max }];
+    });
+  }
+  if (type === "heatmap" && !raw.unreadable) {
+    out.cells = (raw.cells ?? []).flatMap((c) => (c.row && c.col && num(c.value) !== null ? [{ row: c.row.trim(), col: c.col.trim(), value: num(c.value)! }] : []));
+  }
+  return out;
 }
 
 /** Linear interpolation of a series at x; clamps to the first and last point. */
@@ -252,13 +281,121 @@ export function compare(c: Chart): string {
   return `${first} ${big} ${cross}`;
 }
 
+type Info = { title: string; takeaway: string; notable: string[]; unreadable: string | null; confidence: string };
+const list = (xs: string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
+const STEP = "There is no curve to follow by pointer here: step through the stops with the arrow keys, largest first.";
+
+/** Pearson r and the points far off the fitted line (residual over 2.5 standard deviations). */
+export function relation(points: Pt[]) {
+  const n = points.length;
+  const mx = points.reduce((a, p) => a + p.x, 0) / n;
+  const my = points.reduce((a, p) => a + p.y, 0) / n;
+  let sxy = 0, sxx = 0, syy = 0;
+  for (const p of points) {
+    sxy += (p.x - mx) * (p.y - my);
+    sxx += (p.x - mx) ** 2;
+    syy += (p.y - my) ** 2;
+  }
+  const r = sxx && syy ? sxy / Math.sqrt(sxx * syy) : 0;
+  const slope = sxx ? sxy / sxx : 0;
+  const res = points.map((p) => p.y - (my + slope * (p.x - mx)));
+  const sd = Math.sqrt(res.reduce((a, e) => a + e * e, 0) / n);
+  return { r, outliers: sd ? points.filter((_, k) => Math.abs(res[k]) > 2.5 * sd) : [] };
+}
+
+function scatterSays(c: Chart, s: Series): string {
+  const { r, outliers } = relation(s.points);
+  const a = Math.abs(r);
+  const strength = a >= 0.7 ? "a strong" : a >= 0.4 ? "a moderate" : a >= 0.2 ? "a weak" : "almost no";
+  const dir = a < 0.2 ? "" : r > 0 ? ": as one goes up, so does the other" : ": as one goes up, the other goes down";
+  const xr = span(c, "x")[1] - span(c, "x")[0];
+  const yr = span(c, "y")[1] - span(c, "y")[0];
+  const out = outliers.length
+    ? ` ${outliers.length === 1 ? "One point stands apart" : `${outliers.length} points stand apart`}: ${list(outliers.slice(0, 3).map((p) => `${p.label ?? `${noun(c.x, "x")} ${round(p.x, xr)}`} at about ${round(p.y, yr)}`))}.`
+    : "";
+  return `${s.points.length} points read, with ${strength} relationship${dir} (correlation about ${r.toFixed(1).replace(/^-/, "minus ")}).${out}`;
+}
+
+/** Bars ranked: "Highest: 2001 about 1,200; lowest: 1971 about 900." */
+function barRank(c: Chart, s: Series): string {
+  const yr = (span(c, "y")[1] - span(c, "y")[0]) / 10; // bars are often labelled: one step finer than curves
+  const r = [...s.points].sort((a, b) => b.y - a.y);
+  const name = (p: Pt) => p.label ?? round(p.x, 1);
+  return `${s.points.length} bars. Highest: ${name(r[0])}, about ${round(r[0].y, yr)}${unitWord(c.y)}; lowest: ${name(r[r.length - 1])}, about ${round(r[r.length - 1].y, yr)}. From the left: ${s.points.map((p) => `${name(p)} ${round(p.y, yr)}`).join(", ")}.`;
+}
+
+/** Pie, box and heat map: stops only, largest or most important first; no chart data, so the client offers no scrub. */
+function stopsTour(c: CleanChart, info: Info, source: string): Tour | null {
+  const stops: Omit<TourStop, "n">[] = [];
+  const add = (label: string, says: string, confidence = info.confidence === "low" ? "low" : "medium") => stops.push({ label, says, box_2d: c.plot, confidence });
+  add("Main finding", info.takeaway || info.title, "high");
+  let what = "";
+  if (c.type === "pie") {
+    const sl = [...(c.series[0]?.points ?? [])].sort((a, b) => b.y - a.y);
+    if (!sl.length) return null;
+    what = `A pie chart with ${sl.length} slices`;
+    add("Slices", `${sl.length} slices, largest first: ${list(sl.map((p) => `${p.label} about ${Math.round(p.y)} percent`))}.`);
+    sl.forEach((p, k) => add(p.label!, `About ${Math.round(p.y)} percent${k === 0 ? ", the largest slice" : k === sl.length - 1 ? ", the smallest slice" : ""}.`));
+  } else if (c.type === "box") {
+    const bx = [...(c.boxes ?? [])].sort((a, b) => b.median - a.median);
+    if (!bx.length) return null;
+    const lo = Math.min(...bx.map((b) => b.min));
+    const yr = Math.max(...bx.map((b) => b.max)) - lo;
+    const v = (n: number) => round(n, yr || 1);
+    const u = unitWord(c.y);
+    what = `A box plot of ${bx.length} groups`;
+    add("Groups", `${bx.length} groups, highest median first: ${list(bx.map((b) => `${b.label} ${v(b.median)}`))}${u}.`);
+    for (const b of bx) add(b.label, `Median about ${v(b.median)}${u}. The middle half runs from about ${v(b.q1)} to about ${v(b.q3)}; the whiskers reach from about ${v(b.min)} to about ${v(b.max)}.`);
+  } else {
+    const cells = c.cells ?? [];
+    if (cells.length < 4) return null;
+    const rows = [...new Set(cells.map((x) => x.row))];
+    const cols = [...new Set(cells.map((x) => x.col))];
+    const vals = cells.map((x) => x.value);
+    const vr = Math.max(...vals) - Math.min(...vals) || 1;
+    const by = [...cells].sort((a, b) => b.value - a.value);
+    const cell = (x: Cell) => `${x.row}, ${x.col}: about ${round(x.value, vr)}`;
+    what = `A heat map of ${rows.length} rows by ${cols.length} columns`;
+    add("Rows and columns", `Rows: ${list(rows.slice(0, 12))}. Columns: ${list(cols.slice(0, 12))}.`);
+    add("Highest cells", `Highest: ${by.slice(0, 3).map(cell).join("; ")}.`);
+    add("Lowest cells", `Lowest: ${by.slice(-3).reverse().map(cell).join("; ")}.`);
+    // A diagonal pattern: same labels on both axes and the diagonal clearly above the rest (a confusion matrix, a correlation matrix).
+    const diag = cells.filter((x) => x.row === x.col);
+    const off = cells.filter((x) => x.row !== x.col);
+    if (diag.length >= 2 && off.length) {
+      const m = (xs: Cell[]) => xs.reduce((a, x) => a + x.value, 0) / xs.length;
+      const d = m(diag) - m(off);
+      if (Math.abs(d) > vr * 0.25) add("Pattern", `Values are ${d > 0 ? "highest" : "lowest"} along the diagonal, where the row and column match: about ${round(m(diag), vr)} on average against ${round(m(off), vr)} elsewhere.`);
+    }
+    for (const r of rows.slice(0, 8)) {
+      const rc = cells.filter((x) => x.row === r).sort((a, b) => b.value - a.value);
+      if (rc.length >= 2) add(r, `Highest at ${rc[0].col}, about ${round(rc[0].value, vr)}; lowest at ${rc[rc.length - 1].col}, about ${round(rc[rc.length - 1].value, vr)}.`);
+    }
+  }
+  const notes = info.notable.map((t) => t.trim()).filter(Boolean).slice(0, 3);
+  if (notes.length) add("Also notable", notes.join(" "));
+  return { title: info.title, overview: `${info.title}. ${what}. ${STEP}`, source, stops: stops.map((s, k) => ({ n: k + 1, ...s })) };
+}
+
 /** The whole chart tour, built in code so its sentences and boxes agree. */
-export function chartTour(
-  c: Chart & { legend: Box | null },
-  info: { title: string; takeaway: string; notable: string[]; unreadable: string | null; confidence: string },
-  source: string,
-): Tour {
-  const { legend, ...chart } = c;
+export function chartTour(c: CleanChart, info: Info, source: string): Tour {
+  if (["pie", "box", "heatmap"].includes(c.type)) {
+    const t = info.unreadable ? null : stopsTour(c, info, source);
+    if (t) return t;
+    // Nothing readable: name what is drawn and say the values cannot be read; invent nothing.
+    return {
+      title: info.title,
+      overview: `${info.title}. ${info.takeaway}`.trim(),
+      source,
+      stops: [
+        { n: 1, label: "Main finding", says: info.takeaway || info.title, box_2d: [0, 0, 1000, 1000], confidence: "medium" },
+        { n: 2, label: "Values", says: `The values cannot be read from this picture${info.unreadable ? `: ${info.unreadable.replace(/\.+$/, "")}` : ""}.`, box_2d: c.plot, confidence: "low" },
+      ],
+    };
+  }
+  const { legend, boxes: _b, cells: _c, ...chart } = c;
+  void _b;
+  void _c;
   const readable = chart.series.filter((s) => s.points.length);
   const [py0, px0, py1, px1] = chart.plot;
   const stops: Omit<TourStop, "n">[] = [];
@@ -288,14 +425,15 @@ export function chartTour(
   for (const s of readable) {
     const st = stats(s.points);
     const box: Box = [Math.max(py0, toY(st.max.y) - 15), px0, Math.min(py1, toY(st.min.y) + 15), px1];
-    add(s.name, seriesSays(chart, s), box[0] < box[2] ? box : chart.plot, info.confidence === "low" ? "low" : "high");
+    const says = chart.type === "scatter" ? scatterSays(chart, s) : ["bar", "stacked_bar", "histogram"].includes(chart.type) ? barRank(chart, s) : seriesSays(chart, s);
+    add(s.name, says, box[0] < box[2] ? box : chart.plot, info.confidence === "low" ? "low" : "high");
   }
-  const cmp = compare(chart);
+  const cmp = chart.type === "scatter" ? "" : compare(chart);
   if (cmp) add("Comparison", cmp, chart.plot);
   const notes = info.notable.map((t) => t.trim()).filter(Boolean).slice(0, 3);
   if (notes.length) add("Also notable", notes.join(" "), chart.plot, "medium");
 
-  const kind = chart.type === "other" ? "chart" : `${chart.type} chart`;
+  const kind = chart.type === "other" ? "chart" : chart.type === "box" ? "box plot" : `${chart.type.replace("_", " ")} chart`;
   const overview = `${info.title}. A ${kind}${chart.series.length ? ` with ${chart.series.length} series` : ""}.`;
   return {
     title: info.title,

@@ -4,6 +4,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { parseHtml } from "@/lib/parse/html";
+import { warmPage } from "@/lib/server/tourQueue";
 
 export const runtime = "nodejs";
 
@@ -38,6 +39,7 @@ export async function POST(req: Request) {
   twin.id = `doc-${id}`;
   await mkdir(".cache/ingest", { recursive: true });
   await writeFile(file(id), JSON.stringify(twin));
+  warmPage(twin.nodes.flatMap((n) => (n.kind === "figure" && n.image && !n.tour ? [n.image.url] : []))); // background figure tours
   return reply({ id, counts: twin.counts, title: twin.source.title });
 }
 
