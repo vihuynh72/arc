@@ -138,7 +138,8 @@ export default function Reader({ items, paused, onTour }: Props) {
         const n = step(name === "next" ? 1 : -1);
         said(n ? `Moved to ${n.heading}.` : name === "next" ? "End of the page." : "Top of the page.");
       } else if (name === "goto") {
-        const i = findNode(list, String(args?.query ?? ""));
+        const byId = args?.id ? list.findIndex((n) => n.id === args.id) : -1;
+        const i = byId >= 0 ? byId : findNode(list, String(args?.query ?? ""));
         if (i < 0) said(`I could not find ${String(args?.query ?? "that")}.`);
         else {
           moveTo(i);
@@ -152,10 +153,11 @@ export default function Reader({ items, paused, onTour }: Props) {
         said("Stopped.");
       } else if (name === "tour") {
         const figs = list.filter((n) => n.kind === "figure");
+        const byId = args?.id ? figs.find((n) => n.id === args.id) : undefined;
         const wanted = args?.figure != null ? figs.find((n) => n.heading.toLowerCase() === `figure ${args.figure}`) : undefined;
-        const near = list[at]?.kind === "figure" ? list[at] : (list.slice(at + 1).find((n) => n.kind === "figure") ?? figs[0]);
-        const fig = wanted ?? (args?.figure != null ? undefined : near);
-        if (!fig) said(args?.figure != null ? `There is no figure ${args.figure}.` : "There are no figures on this page.");
+        const near = list[at]?.kind === "figure" ? list[at] : figs[0];
+        const fig = byId ?? wanted ?? (args?.figure != null || args?.id ? undefined : near);
+        if (!fig) said(args?.figure != null ? `There is no figure ${args.figure}.` : args?.id ? "I could not find that figure." : "There are no figures on this page.");
         else {
           moveTo(list.indexOf(fig), { read: false });
           live.current.onTour(fig);

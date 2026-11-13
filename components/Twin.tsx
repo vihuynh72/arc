@@ -4,10 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Reader from "@/components/Reader";
 import Nodes from "@/components/twin/Nodes";
 import Results, { type Result } from "@/components/twin/Results";
+import { setCommandContext } from "@/lib/client/command";
 import { prefetchClip, said, speaker, startWaitTone } from "@/lib/client/reader";
 import type { Tour, Twin as TwinData, TwinNode } from "@/lib/types";
 
 const DEFAULT_URL = "https://www.mdpi.com/1424-8220/24/6/1935";
+const VIDEO_URL = "https://www.youtube.com/watch?v=EPvd-3712U8";
 const LIVE_LINE = "Fetching the page through Bright Data.";
 
 const VIA: Record<TwinData["source"]["via"], string> = {
@@ -141,6 +143,12 @@ export default function Twin() {
     [found, twin],
   );
 
+  // The command box (in the page header) decides over what is on screen now.
+  useEffect(
+    () => setCommandContext(items.map((n) => ({ id: n.id, label: n.kind === "figure" ? `${n.heading}: ${n.text.slice(0, 80)}` : n.heading })), tourId !== null),
+    [items, tourId],
+  );
+
   return (
     <>
       <form
@@ -159,6 +167,16 @@ export default function Twin() {
           </button>
           <button type="button" disabled={busy} onClick={() => void load(url, true)}>
             Live fetch with Bright Data
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              setUrl(VIDEO_URL);
+              void load(VIDEO_URL, false);
+            }}
+          >
+            Outline a video
           </button>
         </div>
       </form>
@@ -183,7 +201,7 @@ export default function Twin() {
               {twin.counts.figures > 0 && `, ${plural(twin.counts.figures, "figure")}`}
               {twin.counts.segments > 0 && `, ${plural(twin.counts.segments, "video segment")}`}.
             </p>
-            <Nodes nodes={twin.nodes} tourId={tourId} onTour={(n) => void startTour(n)} onLeave={leaveTour} />
+            <Nodes nodes={twin.nodes} pageUrl={twin.source.kind === "page" ? twin.source.url : undefined} tourId={tourId} onTour={(n) => void startTour(n)} onLeave={leaveTour} />
           </article>
         ) : (
           <h1>Arc</h1>

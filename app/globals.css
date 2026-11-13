@@ -105,6 +105,25 @@ button:disabled {
   top: 0.5rem;
 }
 
+.command {
+  display: grid;
+  gap: 0.25rem;
+  margin-top: 1rem;
+}
+
+.command input {
+  width: 100%;
+}
+
+.command .hint {
+  font-size: 0.9375rem;
+  color: #333;
+}
+
+.command .decision {
+  font-weight: 600;
+}
+
 .address {
   display: grid;
   gap: 0.5rem;

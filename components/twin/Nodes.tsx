@@ -1,10 +1,12 @@
 // Renders twin nodes as plain semantic HTML. Used by components/Twin.tsx.
 import FigureTour from "@/components/FigureTour";
+import RemoteView from "@/components/RemoteView";
 import { clock } from "@/lib/client/reader";
 import type { TwinNode } from "@/lib/types";
 
 type Props = {
   nodes: TwinNode[];
+  pageUrl?: string; // set for web pages only: lets each figure open the real page
   tourId: string | null;
   onTour: (node: TwinNode) => void;
   onLeave: (node: TwinNode) => void;
@@ -12,9 +14,11 @@ type Props = {
 
 const paragraphs = (text: string) => text.split(/\n{2,}/).filter(Boolean).map((p, i) => <p key={i}>{p}</p>);
 
-export default function Nodes({ nodes, tourId, onTour, onLeave }: Props) {
+export default function Nodes({ nodes, pageUrl, tourId, onTour, onLeave }: Props) {
+  let figureNo = 0;
   return nodes.map((n) => {
     if (n.kind === "figure") {
+      figureNo++;
       return (
         <figure key={n.id} id={`fig-${n.id}`} tabIndex={-1} data-node-id={n.id}>
           {n.image && (
@@ -33,6 +37,7 @@ export default function Nodes({ nodes, tourId, onTour, onLeave }: Props) {
               Tour this figure
             </button>
           )}
+          {pageUrl && <RemoteView url={pageUrl} figure={figureNo} />}
         </figure>
       );
     }

@@ -46,3 +46,4 @@ next-env.d.ts
 # private agent notes
 CLAUDE.md
 AGENTS.md
+.impeccable/

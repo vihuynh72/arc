@@ -43,7 +43,12 @@ export function nodeSpeech(n: TwinNode): string[] {
   const head = n.heading.replace(/^(\d+(\.\d+)*)\.\s/, "$1 ").trim();
   const parts = [head];
   if (n.kind === "segment" && n.start != null) parts.push(`At ${clock(n.start)}.`);
-  parts.push(...splitSentences(n.text));
+  const body = splitSentences(n.text);
+  // The heading clip plays while the first sentence is made, so keep that sentence short: cut a long one at its last comma or semicolon within 160 characters.
+  const first = body[0] ?? "";
+  const cut = first.length > 160 ? Math.max(first.lastIndexOf(", ", 160), first.lastIndexOf("; ", 160)) : -1;
+  if (cut > 30) body.splice(0, 1, first.slice(0, cut + 1), first.slice(cut + 1).trim());
+  parts.push(...body);
   if (n.shown) parts.push(...splitSentences(`On screen: ${n.shown}`));
   return parts.filter(Boolean);
 }
