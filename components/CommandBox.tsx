@@ -61,7 +61,10 @@ export default function CommandBox() {
           if (d.act) {
             setText("");
             leave();
-          } else if (viaGemini(d)) leave(); // the answer is spoken and shown here; out of the box, so Space works at once
+          } else if (viaGemini(d)) {
+            setText(""); // else the next paste is appended to the old question
+            leave(); // the answer is spoken and shown here; out of the box, so Space works at once
+          }
         } catch {
           setLine("That did not work. Try again.");
           void speaker.say(["That did not work. Try again, or hold Space and ask."]);
