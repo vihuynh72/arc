@@ -1,4 +1,238 @@
+:root {
+  color-scheme: light;
+  --ink: #111;
+  --paper: #fdfcf8;
+  --calm: #1d4e89;
+  --ring: #c2410c;
+  --line: #5b5b5b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
+  background: var(--paper);
+  color: var(--ink);
   font-family: system-ui, sans-serif;
+  font-size: 1.125rem;
+  line-height: 1.65;
+}
+
+header,
+main {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 0 1rem;
+  overflow-wrap: anywhere;
+}
+
+header {
+  padding-top: 1rem;
+}
+
+header p {
+  margin: 0;
+}
+
+.brand {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+h1 {
+  font-size: 1.75rem;
+  line-height: 1.25;
+}
+
+h2 {
+  font-size: 1.5rem;
+  margin-top: 2.5rem;
+}
+
+h3 {
+  font-size: 1.25rem;
+  margin-top: 2rem;
+}
+
+h4 {
+  font-size: 1.125rem;
+  margin-top: 1.5rem;
+}
+
+a {
+  color: var(--calm);
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+  min-height: 2.75rem;
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  background: #fff;
+  padding: 0.25rem 0.75rem;
+}
+
+button {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+:focus-visible {
+  outline: 4px solid var(--calm);
+  outline-offset: 2px;
+}
+
+.skip {
+  position: absolute;
+  left: 0.5rem;
+  top: -4rem;
+  background: #fff;
+  padding: 0.5rem 1rem;
+  border: 2px solid var(--ink);
+  z-index: 10;
+}
+
+.skip:focus {
+  top: 0.5rem;
+}
+
+.address {
+  display: grid;
+  gap: 0.5rem;
+  margin: 1.5rem 0 0.5rem;
+}
+
+.address input {
+  width: 100%;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.status {
+  margin: 0.75rem 0 0;
+  font-weight: 600;
+}
+
+.elapsed {
+  margin: 0;
+}
+
+#content {
+  outline: none;
+  padding-bottom: 8rem;
+}
+
+.credit {
+  font-size: 0.9375rem;
+  color: #333;
+}
+
+.overview {
+  font-weight: 600;
+}
+
+.stamp,
+.shown {
+  font-size: 1rem;
+  color: #333;
+}
+
+figure {
+  margin: 2rem 0;
+  padding: 0;
+}
+
+figure img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+figcaption {
+  margin: 0.5rem 0;
+}
+
+ol {
+  padding-left: 1.25rem;
+}
+
+[aria-current="true"] {
+  scroll-margin-top: 1rem;
+}
+
+/* The cursor: a ring that slides from node to node, with a solid bar on its left edge as the pointer. */
+.arc-ring {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  border: 4px solid var(--ring);
+  border-left-width: 14px;
+  border-radius: 8px;
+  box-shadow: 0 0 0 3px #fff, 0 0 18px rgba(194, 65, 12, 0.45);
+  opacity: 0;
+  transition:
+    top 0.45s ease,
+    left 0.45s ease,
+    width 0.45s ease,
+    height 0.45s ease,
+    opacity 0.2s;
+  z-index: 5;
+}
+
+.arc-ring[data-on="true"] {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arc-ring {
+    transition: none;
+  }
+}
+
+.reader {
+  position: sticky;
+  bottom: 0;
+  z-index: 6;
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 0.5rem 1rem;
+  background: #fff;
+  border: 2px solid var(--ink);
+  border-radius: 8px 8px 0 0;
+}
+
+.reader-pos {
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+}
+
+.reader-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+@media (max-width: 40rem) {
+  .reader {
+    position: static;
+  }
 }

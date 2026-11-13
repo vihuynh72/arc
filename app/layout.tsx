@@ -9,7 +9,12 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <a className="skip" href="#content">
+          Skip to the page
+        </a>
+        {children}
+      </body>
     </html>
   );
 }
