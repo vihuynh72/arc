@@ -16,6 +16,14 @@ There is one input box. Paste a link, or say or type what you want. Three things
 
 Example requests: paste `https://www.mdpi.com/1424-8220/24/6/1935`; "find me a paper about knee rehabilitation"; "take me to the results"; "start the tour of figure 1"; "what does the belt unit contain?". A YouTube link becomes an outline of what is said and what is shown on screen.
 
+## Works on the page you are already on
+
+A student does not have to copy a link.
+
+- **The Arc extension** (`extension/`, Chrome, no build step): on any page, press Alt+Shift+A. It sends the open tab's HTML, only to the Arc server you set, and Arc opens the twin, read from your own tab (`/api/ingest`). Nothing is fetched again, so it works on pages behind your own login, such as a course site. See `extension/README.md` to load it unpacked in a minute. Not yet tested as an installed extension.
+- **A bookmarklet**, no install: `javascript:location.href='http://localhost:3000/?url='+encodeURIComponent(location.href)` (public pages only, since Arc fetches the link itself).
+- **Deep links**: `/?url=<link>` loads a page on open, `/?q=<request>` runs a request such as a search, `/?doc=<id>` opens a page the extension sent.
+
 ## Under the hood
 
 1. You hold Space. Chrome's speech recognition supplies words while the key is held.
@@ -56,10 +64,10 @@ Set these in `.env.local`: `BRIGHTDATA_API_TOKEN`, `BRIGHTDATA_UNLOCKER_ZONE`, `
 - `lib/types.ts`: the shared type contract
 - `lib/models.ts`: model and voice names
 - `lib/cues.ts`: spatial directions
-- `lib/parse/markdown.ts`: page to twin
+- `lib/parse/html.ts`: any page's HTML to twin; `lib/parse/markdown.ts`: MDPI markdown to twin
 - `lib/server/decide.ts`: the Snap call and the 60% rule
 - `lib/server/live.ts`: Gemini Live relay
-- `lib/server/fetch.ts`: Web Unlocker fetch, saved-copy fallback
+- `lib/server/fetch.ts`: saved copy, then a plain fetch, then Web Unlocker
 - `lib/server/remote.ts`: Browser API remote view
 - `lib/client/voice.ts`: hold-Space voice
 
@@ -74,7 +82,8 @@ One person, one day, a team of AI coding agents: a "software factory". One orche
 ## Limits and what is next
 
 - Not yet tested with blind users or with a screen reader running.
-- The live page view understands MDPI's page structure only.
+- Twins work beyond MDPI: any page is fetched directly first (Wikipedia, OpenStax and a Cloudflare blog post load in 0.3 to 0.7 s), then through Bright Data's Unlocker, and parsed by one generic HTML parser. Verified from the server on Wikipedia, OpenStax and a blog article; the extension path was tested with Wikipedia's HTML. Pages drawn by scripts (Khan Academy) and PubMed Central fetched from the server (it now answers with a captcha, and Bright Data refuses it) do not load; the extension reads them from the student's tab instead.
+- The live page panel still understands MDPI's page structure best.
 - Video outlines are YouTube only, about 10 minutes at most.
 - Tour boxes for unprepared figures are model-made and can be wrong; they show only at high model confidence. Prepared demo tours are hand-checked.
 - The fast voice path uses Chrome's speech recognition.

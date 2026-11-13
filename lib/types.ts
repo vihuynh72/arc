@@ -41,7 +41,7 @@ export interface Twin {
     url: string;
     kind: "page" | "pdf" | "video";
     title: string;
-    via: "cache" | "browser-api" | "unlocker" | "gemini";
+    via: "cache" | "browser-api" | "unlocker" | "gemini" | "direct" | "browser";
     credit?: string; // license and attribution line, shown on the twin
     ms?: number; // time the fetch took
   };

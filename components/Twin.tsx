@@ -6,7 +6,7 @@ import LivePanel from "@/components/LivePanel";
 import Reader from "@/components/Reader";
 import Nodes from "@/components/twin/Nodes";
 import Results, { type Result } from "@/components/twin/Results";
-import { setCommandContext } from "@/lib/client/command";
+import { setCommandContext, submitUtterance } from "@/lib/client/command";
 import { findNode, prefetchClip, said, speaker, startWaitTone } from "@/lib/client/reader";
 import { pageContext, setContext } from "@/lib/client/voice";
 import type { Tour, Twin as TwinData, TwinNode } from "@/lib/types";
@@ -20,6 +20,8 @@ const VIA: Record<TwinData["source"]["via"], string> = {
   "browser-api": "Fetched live through the Bright Data Browser API",
   unlocker: "Fetched live through Bright Data Web Unlocker",
   gemini: "Built from the video with Gemini",
+  direct: "Loaded directly",
+  browser: "Read from your open tab",
 };
 const host = (u = "") => {
   try {
@@ -262,6 +264,34 @@ export default function Twin() {
   );
 
   // Commands for the page itself (typed, spoken, or from the one box); the cursor ones live in Reader.
+  // /?doc=<id>: a page the Arc extension read from the student's own tab (app/api/ingest/route.ts); nothing is fetched.
+  const loadDoc = useCallback(async (id: string) => {
+    const mine = ++seq.current;
+    setFound(null);
+    setTourId(null);
+    const res = await fetch(`/api/ingest?id=${encodeURIComponent(id)}`).catch(() => null);
+    const t = res?.ok ? ((await res.json()) as TwinData) : null;
+    if (mine !== seq.current) return;
+    if (!t) return void setStatus(`That page is no longer saved. ${NEXT_STEP}`);
+    setTwin(t);
+    setStatus(`${VIA[t.source.via]}.`);
+    void speaker.say([`Read from your tab. ${t.source.title}.`, `${counted(t).replace(", ", " and ")}.`, "Use the arrow keys, or hold Space and ask."]);
+    said(`Loaded ${t.source.title}.`);
+  }, []);
+
+  // Deep links, so nobody has to paste: /?url=<link>, /?q=<request>, /?doc=<id>. The query string is cleared at once.
+  useEffect(() => {
+    const p = new URLSearchParams(location.search);
+    const [url, q, doc] = [p.get("url"), p.get("q"), p.get("doc")];
+    if (!url && !q && !doc) return;
+    history.replaceState(null, "", location.pathname);
+    queueMicrotask(() => {
+      if (doc) void loadDoc(doc);
+      else if (url && /^https?:\/\//i.test(url)) void load(url, false);
+      else if (q) void submitUtterance(q).catch(() => {});
+    });
+  }, [load, loadDoc]);
+
   const handlers = useRef({ search, open, load, found, twin });
   useEffect(() => {
     handlers.current = { search, open, load, found, twin };
@@ -338,7 +368,7 @@ export default function Twin() {
         )}
       </div>
       {/* A direct child of <main>, so on wide screens it takes the right column (app/globals.css). */}
-      {!found && twin?.source.kind === "page" && (
+      {!found && twin?.source.kind === "page" && twin.source.via !== "browser" && (
         <div className="arc-live">
           <LivePanel url={twin.source.url} />
         </div>
