@@ -13,6 +13,7 @@ import { askAudio, askEnd, askStart, audioState, chime, dropAnswer, playAnswer, 
 
 const GREETING = "Arc. Hold Space and tell me what to study, or paste a link.";
 const STABLE_MS = 350; // interim words unchanged this long are pre-asked to Snap
+const TAP_MS = 200; // a Space tap shorter than this is not a question: nothing is sent to Gemini
 
 type Args = Record<string, unknown>;
 type Mic = (onChunk: (b64: string) => void) => Promise<() => void>;
@@ -168,13 +169,16 @@ export default function AskButton() {
     const m = mic.current;
     if (!m) return;
     mic.current = undefined;
+    setState((s) => (s === "error" ? s : "idle")); // at once: a pending microphone prompt must not leave it "Listening"
     const ask = m.ask;
     const words = ask.words; // taken at release; later results are ignored
-    ask.rec?.stop();
+    const tap = performance.now() - ask.t0 < TAP_MS && !words;
+    if (tap) ask.owner = "snap"; // nobody answers a tap: "heard" and Gemini's reply are ignored
+    ask.rec?.[tap ? "abort" : "stop"]();
     (await m.close)?.();
     ask.t0 = performance.now();
     askEnd();
-    setState((s) => (s === "error" ? s : "idle"));
+    if (tap) dropAnswer(ask.id);
     void chime();
     if (!words) return;
     time(ask, `browser transcript "${words}"`);
@@ -196,8 +200,9 @@ export default function AskButton() {
     const greet = (e: Event) => {
       if (greeted.current) return;
       greeted.current = true; // browsers allow audio only after a gesture: the first one is it
-      const space = e instanceof KeyboardEvent && e.key === " " && !typing(e.target);
-      if (!space) void speaker.say([GREETING]);
+      // Not over a request (Space, typing in the box) and not when the first key is Escape ("be quiet").
+      const quiet = e instanceof KeyboardEvent && (e.key === " " || e.key === "Escape");
+      if (!quiet && !typing(e.target)) void speaker.say([GREETING]);
     };
     const down = (e: KeyboardEvent) => {
       if (e.key === "Escape") {

@@ -7,7 +7,8 @@ export async function decide(utterance: string, items: Item[], inTour = false): 
   const res = await fetch("/api/decide", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ utterance, items, inTour }),
+    // SubQ needs at least two target options ("none" is always one): an empty page (nothing loaded yet) got HTTP 422.
+    body: JSON.stringify({ utterance, items: items.length ? items : [{ id: "top", label: "the top of the page" }], inTour }),
   });
   if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? "Decision failed.");
   return (await res.json()) as Decision;

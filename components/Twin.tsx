@@ -28,7 +28,8 @@ const host = (u = "") => {
   }
 };
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
-const took = (ms?: number) => (ms == null ? "" : ms < 1000 ? ` in ${ms} milliseconds.` : ` in ${(ms / 1000).toFixed(1)} seconds.`);
+const took = (ms?: number) => (ms == null ? "." : ms < 50 ? " instantly." : ms < 1000 ? ` in ${plural(ms, "millisecond")}.` : ` in ${(ms / 1000).toFixed(1)} seconds.`);
+const NEXT_STEP = "Paste another link, or hold Space and ask for a paper.";
 
 export default function Twin() {
   const [twin, setTwin] = useState<TwinData | null>(null);
@@ -37,7 +38,8 @@ export default function Twin() {
   const [elapsed, setElapsed] = useState<number | null>(null);
   const [tourId, setTourId] = useState<string | null>(null);
 
-  useEffect(() => prefetchClip(LIVE_LINE), []); // warms the voice so the live line starts at once
+  // Warms the voice so these fixed lines start at once.
+  useEffect(() => [LIVE_LINE, NEXT_STEP, "Use the arrow keys, or hold Space and ask."].forEach(prefetchClip), []);
 
   // live: skip the saved copy. Otherwise the saved copy if there is one, else the server fetches live itself.
   const load = useCallback(async (target: string, live: boolean) => {
@@ -52,7 +54,9 @@ export default function Twin() {
     // No saved copy came back quickly: say why there is a wait, then a soft tone and a counter until it arrives.
     const waiting = () => {
       if (ended) return;
-      if (video) return void (stopTone = startWaitTone());
+      if (video) return void speaker.say(["Outlining the video with Gemini. This takes a moment."]).then(() => {
+          if (!ended) stopTone = startWaitTone();
+        });
       setStatus(LIVE_LINE);
       setElapsed(0);
       timer = setInterval(() => setElapsed((s) => (s ?? 0) + 1), 1000);
@@ -68,12 +72,12 @@ export default function Twin() {
       const t = data as TwinData;
       setTwin(t);
       setStatus(`${VIA[t.source.via]}${took(t.source.ms)}`);
-      void speaker.say([`${t.source.via === "cache" ? "Saved copy." : "Loaded."} ${t.source.title}.`, `${plural(t.counts.sections + t.counts.segments, "section")} and ${plural(t.counts.figures, "figure")}.`, "Use the arrow keys to move."]);
+      void speaker.say([`${t.source.via === "cache" ? "Saved copy." : "Loaded."} ${t.source.title}.`, `${plural(t.counts.sections + t.counts.segments, t.counts.segments ? "part" : "section")}${t.counts.figures ? ` and ${plural(t.counts.figures, "figure")}` : ""}.`, "Use the arrow keys, or hold Space and ask."]);
       said(`Loaded ${t.source.title}.`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Could not load that page.";
-      setStatus(msg);
-      void speaker.say([msg.slice(0, 300)]);
+      setStatus(`${msg} ${NEXT_STEP}`);
+      void speaker.say([`${/[.!?]$/.test(msg) ? msg : `${msg}.`}`.slice(0, 300), NEXT_STEP]);
     } finally {
       ended = true;
       clearTimeout(soon);
@@ -108,6 +112,7 @@ export default function Twin() {
   const leaveTour = useCallback((node: TwinNode) => {
     setTourId(null);
     setStatus("Left the tour.");
+    void speaker.say(["Left the tour."]);
     requestAnimationFrame(() => document.getElementById(`fig-${node.id}`)?.focus());
   }, []);
 
@@ -121,9 +126,11 @@ export default function Twin() {
     }
     setTourId(null);
     setFound({ query, results: data.results });
-    setStatus(`Found ${plural(data.results.length, "result")} for ${query}.`);
-    said(`Found ${plural(data.results.length, "result")} for ${query}.`);
-    void speaker.say([`Found ${plural(data.results.length, "result")} for ${query}.`]);
+    const n = data.results.length;
+    const line = n ? `${plural(n, "result")} for ${query}. Use the arrow keys, or say open the first one.` : `No results for ${query}. Hold Space and try other words.`;
+    setStatus(n ? `${plural(n, "result")} for ${query}.` : `No results for ${query}.`); // the status line stays short; the voice instructs
+    said(line);
+    void speaker.say([line]);
   }, []);
 
   const open = useCallback((target: string) => void load(target, false), [load]);
@@ -187,7 +194,6 @@ export default function Twin() {
         {found ? (
           <Results query={found.query} results={found.results} ids={items.map((i) => i.id)} onOpen={open} onBack={() => setFound(null)} />
         ) : twin ? (
-          <>
           <article aria-labelledby="twin-title">
             <h1 id="twin-title">{twin.source.title}</h1>
             {twin.source.credit && <p className="credit">{twin.source.credit}</p>}
@@ -201,12 +207,6 @@ export default function Twin() {
             </p>
             <Nodes nodes={twin.nodes} pageUrl={twin.source.kind === "page" ? twin.source.url : undefined} tourId={tourId} onTour={(n) => void startTour(n)} onLeave={leaveTour} />
           </article>
-          {twin.source.kind === "page" && (
-            <div className="arc-live">
-              <LivePanel url={twin.source.url} />
-            </div>
-          )}
-          </>
         ) : (
           <>
             <h1>Arc</h1>
@@ -219,6 +219,12 @@ export default function Twin() {
           </>
         )}
       </div>
+      {/* A direct child of <main>, so on wide screens it takes the right column (app/globals.css). */}
+      {!found && twin?.source.kind === "page" && (
+        <div className="arc-live">
+          <LivePanel url={twin.source.url} />
+        </div>
+      )}
 
       {items.length > 0 && <Reader key={found ? `found:${found.query}` : twin?.id} items={items} paused={tourId !== null} onTour={(n) => void startTour(n)} />}
     </>

@@ -848,3 +848,49 @@ figure figure figcaption {
     white-space: normal;
   }
 }
+
+/* ---------- Polish (M-polish) ---------- */
+
+/* The live panel is a direct child of <main>: beside the article on wide screens (sticky, above), below it on narrow ones. */
+@media (min-width: 68.75rem) {
+  main > .arc-live {
+    margin-top: 2rem;
+  }
+}
+
+/* The floating reader bar must never cover the last lines: room below the article, and moves land above the bar. */
+@media (min-width: 68.75rem) {
+  #content {
+    padding-bottom: 14rem;
+  }
+  html {
+    scroll-padding-bottom: 12rem;
+  }
+  [data-cursor] {
+    scroll-margin-bottom: 12rem;
+  }
+}
+
+/* Tour controls: an even grid of real buttons, no ragged wrap in the narrow column. */
+[data-tour] [role="application"] {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+  gap: 0.5rem !important;
+}
+
+[data-tour] [role="application"] button {
+  min-height: 2.5rem;
+  padding: 0.5rem 0.75rem;
+  white-space: nowrap;
+}
+
+[data-tour] [role="application"] > span {
+  justify-self: center;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* LivePanel already has its own visible heading; the wrapper's eyebrow would repeat it. */
+main > .arc-live::before {
+  display: none;
+}

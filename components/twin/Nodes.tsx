@@ -21,7 +21,8 @@ export default function Nodes({ nodes, pageUrl, tourId, onTour, onLeave }: Props
       figureNo++;
       return (
         <figure key={n.id} id={`fig-${n.id}`} tabIndex={-1} data-node-id={n.id}>
-          {n.image && (
+          {/* While its tour is open the tour shows the image with the ring; one image, not two. */}
+          {n.image && !(tourId === n.id && n.tour) && (
             // eslint-disable-next-line @next/next/no-img-element -- remote publisher image, shown as-is
             <img src={n.image.url} alt={n.image.alt ?? n.heading} referrerPolicy="no-referrer" />
           )}
