@@ -16,7 +16,8 @@ export default function Reader({ items, paused, onTour }: Props) {
   const [index, setIndex] = useState(-1);
   const [rate, setRate] = useState(1);
   const ring = useRef<HTMLDivElement>(null);
-  const live = useRef({ items, index: -1, paused, onTour });
+  // progUntil: Arc's own scroll is under way, ignore scroll events. settled: the index last announced. raf/timer: the scroll follower.
+  const live = useRef({ items, index: -1, paused, onTour, progUntil: 0, settled: -1, raf: 0, timer: 0 });
   useEffect(() => {
     live.current.items = items;
     live.current.paused = paused;
@@ -39,7 +40,7 @@ export default function Reader({ items, paused, onTour }: Props) {
   }, []);
 
   const moveTo = useCallback(
-    (i: number, opts: { read?: boolean; scroll?: boolean } = {}) => {
+    (i: number, opts: { read?: boolean; scroll?: boolean; from?: "scroll" } = {}) => {
       const { items: list } = live.current;
       const node = list[i];
       const el = node && nodeEl(node.id);
@@ -48,7 +49,10 @@ export default function Reader({ items, paused, onTour }: Props) {
       el.setAttribute("aria-current", "true");
       live.current.index = i;
       setIndex(i);
+      if (opts.from === "scroll") return place(true); // the user's own scroll: the ring follows, the settle timer announces
+      live.current.settled = i;
       if (opts.scroll !== false) {
+        live.current.progUntil = performance.now() + 700; // smooth scroll takes up to ~0.6 s; scrollend clears it sooner
         const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
         (el.querySelector("[data-cursor]") ?? el).scrollIntoView({ block: node.kind === "figure" ? "center" : "start", behavior: calm ? "auto" : "smooth" });
       }
@@ -112,10 +116,50 @@ export default function Reader({ items, paused, onTour }: Props) {
     const onFocus = (e: FocusEvent) => {
       const id = (e.target as HTMLElement).closest?.("[data-node-id]")?.getAttribute("data-node-id");
       const i = live.current.items.findIndex((n) => n.id === id);
-      if (i >= 0 && i !== live.current.index) moveTo(i, { read: false, scroll: false });
+      if (i < 0 || i === live.current.index) return;
+      live.current.progUntil = performance.now() + 700; // the browser may scroll the focused node into view
+      moveTo(i, { read: false, scroll: false });
     };
     document.addEventListener("focusin", onFocus);
     return () => document.removeEventListener("focusin", onFocus);
+  }, [moveTo]);
+
+  // The user scrolls (wheel, touch, bar, Page keys, screen reader): the cursor follows the item nearest the arrow-key landing line.
+  // The page is never scrolled back and focus never moves. Once still for 450 ms the item is read, once.
+  useEffect(() => {
+    const L = live.current;
+    L.progUntil = performance.now() + 1000; // a new page may clamp the scroll position
+    const idle = () => L.paused || performance.now() < L.progUntil || !!document.activeElement?.closest("input, textarea, select, [contenteditable='true']");
+    const follow = () => {
+      L.raf = 0;
+      let best = -1;
+      let gap = Infinity;
+      L.items.forEach((n, i) => {
+        const c = nodeEl(n.id)?.querySelector("[data-cursor]") ?? nodeEl(n.id);
+        if (!c) return;
+        const d = Math.abs(c.getBoundingClientRect().top - (parseFloat(getComputedStyle(c).scrollMarginTop) || 0));
+        if (d < gap) [best, gap] = [i, d];
+      });
+      if (best >= 0 && best !== L.index) moveTo(best, { from: "scroll" });
+    };
+    const onScroll = () => {
+      if (idle()) return;
+      speaker.cancel(); // a new scroll stops the voice, like a key
+      L.raf ||= requestAnimationFrame(follow);
+      clearTimeout(L.timer);
+      L.timer = window.setTimeout(() => {
+        if (!idle() && L.index >= 0 && L.index !== L.settled) moveTo(L.index, { scroll: false });
+      }, 450);
+    };
+    const done = () => (L.progUntil = 0);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("scrollend", done);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("scrollend", done);
+      cancelAnimationFrame(L.raf);
+      clearTimeout(L.timer);
+    };
   }, [moveTo]);
 
   // Keep the ring on its node when the layout changes (zoom, images loading).
