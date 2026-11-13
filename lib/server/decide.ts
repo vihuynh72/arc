@@ -1,12 +1,14 @@
 // Fast decision step: SubQ Snap turns one spoken or typed request into a command with a probability (about 0.4 s).
 // Arc acts only when `act` is true; otherwise the caller lets the voice model answer or asks "Did you mean ...?".
+import { DISPLAY_COMMANDS } from "@/lib/client/display";
+
 const URL = "https://api.subq.ai/v1/systemone";
 const MODEL = "subq-snap-1.2";
 
 export const ACTION_MIN = 0.6; // action confidence needed to act
 export const TARGET_MIN = 0.6; // target confidence needed for goto and tour
 
-export type Action = "next" | "prev" | "goto" | "read" | "stop" | "tour" | "search" | "open" | "refresh" | "question" | "none";
+export type Action = "next" | "prev" | "goto" | "read" | "stop" | "tour" | "search" | "open" | "refresh" | "question" | "display" | "none";
 export interface Item {
   id: string;
   label: string;
@@ -16,6 +18,8 @@ export interface Decision {
   confidence: number;
   target: string | null;
   targetConfidence: number;
+  setting: string | null; // display: which of DISPLAY_COMMANDS
+  settingConfidence: number;
   query: string;
   ms: number;
   act: boolean;
@@ -32,6 +36,7 @@ const ACTIONS: Record<Action, string> = {
   open: "open one of the listed search results, or a link the student names",
   refresh: "fetch the current page again, live from the web",
   question: "answer a question about the content of this page",
+  display: "change how the page looks: text size, colours, contrast, brightness, spacing, font, focus line or motion",
   none: "not a request to Arc",
 };
 
@@ -39,7 +44,7 @@ const ACTIONS: Record<Action, string> = {
 export function shouldAct(action: Action, confidence: number, target: string | null, targetConfidence: number): boolean {
   if (confidence < ACTION_MIN) return false;
   if (action === "none" || action === "question") return false;
-  if (action === "goto" || action === "tour" || action === "open") return targetConfidence >= TARGET_MIN && target !== null && target !== "none";
+  if (action === "goto" || action === "tour" || action === "open" || action === "display") return targetConfidence >= TARGET_MIN && target !== null && target !== "none";
   return true;
 }
 
@@ -107,22 +112,31 @@ export async function decide(input: { utterance: string; items: Item[]; inTour?:
           "Which listed section, figure or search result does the utterance refer to? \"The second one\" means Result 2. Choose none if it names none of them.",
         criteria: { ...Object.fromEntries(items.map((i) => [i.id, i.label])), none: "no listed item is named" },
       },
+      setting: {
+        type: "choice",
+        instructions: "If the utterance asks to change how the page looks, which display change does it ask for? Choose none otherwise.",
+        criteria: { ...DISPLAY_COMMANDS, none: "not a display change" },
+      },
     },
   };
   const res = await post(body);
   if (!res.ok) throw new Error(`SubQ answered HTTP ${res.status}`);
-  const answers = (await res.json()).answers as { action: Choice; target: Choice };
+  const answers = (await res.json()).answers as { action: Choice; target: Choice; setting?: Choice };
   const action = (answers.action.choice in ACTIONS ? answers.action.choice : "none") as Action;
   const confidence = conf(answers.action);
   const targetConfidence = conf(answers.target);
   const target = answers.target.choice === "none" ? null : answers.target.choice;
+  const setting = answers.setting && answers.setting.choice in DISPLAY_COMMANDS ? answers.setting.choice : null;
+  const settingConfidence = answers.setting ? conf(answers.setting) : 0;
   return {
     action,
     confidence,
     target,
     targetConfidence,
+    setting,
+    settingConfidence,
     query: cleanQuery(input.utterance, action),
     ms: Date.now() - t0,
-    act: shouldAct(action, confidence, target, targetConfidence),
+    act: action === "display" ? shouldAct(action, confidence, setting, settingConfidence) : shouldAct(action, confidence, target, targetConfidence),
   };
 }

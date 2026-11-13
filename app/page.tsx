@@ -1,5 +1,6 @@
 import AskButton from "@/components/AskButton";
 import CommandBox from "@/components/CommandBox";
+import DisplaySettings from "@/components/DisplaySettings";
 import Twin from "@/components/Twin";
 
 export default function Home() {
@@ -12,6 +13,7 @@ export default function Home() {
         </p>
         <CommandBox />
         <AskButton />
+        <DisplaySettings />
       </header>
       <main id="main">
         <Twin />

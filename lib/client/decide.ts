@@ -22,5 +22,6 @@ export function dispatchDecision(d: Decision, items: Item[]) {
   else if (d.action === "tour") send("tour", { id: d.target ?? undefined });
   else if (d.action === "search") send("search", { query: d.query });
   else if (d.action === "open") send("open", { id: d.target });
+  else if (d.action === "display") send("display", { setting: d.setting });
   else if (d.action === "next" || d.action === "prev" || d.action === "read" || d.action === "stop" || d.action === "refresh") send(d.action, {});
 }

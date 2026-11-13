@@ -57,6 +57,7 @@ export default function Landing() {
           <li>Take me to the results</li>
           <li>Tour figure one</li>
         </ul>
+        <p className="landing-display">Say &ldquo;bigger text&rdquo;, &ldquo;high contrast&rdquo; or &ldquo;low glare&rdquo;, or press the Display button.</p>
       </section>
 
       <section className="landing-block" aria-labelledby="how-title">

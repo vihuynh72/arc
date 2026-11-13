@@ -46,7 +46,8 @@ interface Rec {
 
 const dispatch = (name: string, args: Args) => window.dispatchEvent(new CustomEvent("arc:command", { detail: { name, args } }));
 const time = (ask: Ask, what: string, at = performance.now()) => console.info(`[arc-timing] ${ask.id} ${what} ${Math.round(at - ask.t0)} ms after release`);
-const typing = (t: EventTarget | null) => !!(t as HTMLElement | null)?.closest?.("input, textarea, select, [contenteditable='true']");
+// An open dialog (the Display panel) also keeps Space for its own controls.
+const typing = (t: EventTarget | null) => !!(t as HTMLElement | null)?.closest?.("input, textarea, select, [contenteditable='true'], dialog");
 
 export default function AskButton() {
   const [state, setState] = useState<"idle" | "listening" | "error">("idle");

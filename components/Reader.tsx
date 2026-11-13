@@ -56,7 +56,7 @@ export default function Reader({ items, paused, onTour }: Props) {
       live.current.settled = i;
       if (opts.scroll !== false) {
         live.current.progUntil = performance.now() + 700; // smooth scroll takes up to ~0.6 s; scrollend clears it sooner
-        const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        const calm = document.documentElement.dataset.motion === "reduce"; // system setting or the Display panel (lib/client/display.ts)
         parkEl(el, node.kind).scrollIntoView({ block: "start", behavior: calm ? "auto" : "smooth" });
       }
       place(true);

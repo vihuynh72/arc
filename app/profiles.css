@@ -1,0 +1,364 @@
+/* Display profiles (lib/client/display.ts sets the attributes on <html>; each axis combines with the others).
+   Built from published guidance (README "Display profiles"), not tested with students who have these conditions.
+   Contrast (WCAG, computed; bg / surface / card):
+   paper     text 15.1/13.8/16.0  muted 7.9/7.2/8.3   link 6.3/5.8/6.7  edge 3.9/3.6/4.2  ring 6.3/5.7/6.6
+   contrast  text 21             muted 15.1          link 9.9          edge 21           ring 8.0
+   c.-dark   text 21             muted 15.3          link 17.2         edge 21           ring 13.7
+   low-glare text 11.2/9.9/10.4  muted 7.5/6.6/7.0   link 9.4/8.3/8.7  edge 4.7/4.1/4.4  ring 9.1/8.1/8.5
+   cream     text 13.8/12.5/14.4 muted 8.8/8.0/9.2   link 7.5/6.8/7.8  edge 3.9/3.5/4.1  ring 6.1/5.5/6.4 */
+
+/* ---------- Colours ---------- */
+
+:root {
+  --card: #fff; /* figure cards, inputs, keys: white in Paper */
+  --ring-blend: multiply;
+}
+
+:root[data-theme="contrast"] {
+  --bg: #fff;
+  --surface: #fff;
+  --card: #fff;
+  --ink: #000;
+  --muted: #262626;
+  --hair: #000;
+  --edge: #000;
+  --accent: #0038e0;
+  --soft: #0038e0;
+  --link: #0033b3;
+  --ring: #0038e0;
+  --focus: #000;
+  --shadow: none;
+}
+
+:root[data-theme="contrast-dark"] {
+  color-scheme: dark;
+  --bg: #000;
+  --surface: #000;
+  --card: #000;
+  --ink: #fff;
+  --muted: #e0e0e0;
+  --hair: #fff;
+  --edge: #fff;
+  --accent: #00e5ff;
+  --soft: #00e5ff;
+  --link: #ffeb3b; /* yellow links on black */
+  --ring: #00e5ff;
+  --focus: #fff;
+  --shadow: none;
+  --ring-blend: normal;
+}
+
+/* Warm dark grey, soft off-white: no pure white anywhere; body text still 10:1 or more. */
+:root[data-theme="low-glare"] {
+  color-scheme: dark;
+  --bg: #1f1d1a;
+  --surface: #2a2723;
+  --card: #262320;
+  --ink: #d9d2c5;
+  --muted: #b5ac9e;
+  --hair: #3d3934;
+  --edge: #8f8678;
+  --accent: #a9c4e2;
+  --soft: #6f8aa8;
+  --link: #a9c4e2;
+  --ring: #f0b45c; /* amber: the warmest, brightest thing on the page */
+  --focus: #a9c4e2;
+  --shadow: none;
+  --ring-blend: normal;
+}
+
+:root[data-theme="cream"] {
+  --bg: #fbf5e3;
+  --surface: #f3ead2;
+  --card: #fffaec;
+  --ink: #2b2620;
+  --muted: #4c443a;
+  --hair: #e0d4b4;
+  --edge: #857a63;
+  --link: #22508a;
+  --focus: #22508a;
+  --ring-blend: normal; /* multiply turns the blue tint grey on cream */
+}
+
+/* Hard-coded colours in globals.css, re-expressed as tokens (identical values in Paper). */
+input,
+kbd,
+figure,
+figure img,
+.arc-live,
+.landing-demo,
+[data-tour] section > p {
+  background: var(--card);
+}
+button:hover {
+  background: color-mix(in srgb, var(--ink) 8%, var(--surface));
+}
+header > .ask > button:hover,
+header > button:hover,
+.actions button[type="submit"]:hover,
+.reader-buttons button:nth-child(-n + 2):hover {
+  background: color-mix(in srgb, var(--ink) 85%, var(--bg));
+}
+header button[aria-pressed="true"] {
+  color: var(--bg);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ring) 25%, transparent);
+}
+.reader {
+  background: color-mix(in srgb, var(--bg) 96%, transparent);
+}
+@media (min-width: 68.75rem) and (min-height: 45rem) {
+  header {
+    background: color-mix(in srgb, var(--bg) 94%, transparent);
+  }
+}
+.arc-ring {
+  mix-blend-mode: var(--ring-blend);
+  background: color-mix(in srgb, var(--ring) 12%, transparent);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--ring) 20%, transparent),
+    0 0 32px 6px color-mix(in srgb, var(--ring) 35%, transparent);
+}
+[data-tour] section > div:first-child > div[aria-hidden="true"] {
+  background: color-mix(in srgb, var(--ring) 10%, transparent);
+  box-shadow:
+    0 0 0 3px var(--bg),
+    0 0 0 6px color-mix(in srgb, var(--ring) 25%, transparent),
+    0 0 28px 6px color-mix(in srgb, var(--ring) 45%, transparent) !important;
+}
+.landing-demo i {
+  background: color-mix(in srgb, var(--ring) 8%, transparent);
+}
+.landing-demo span:nth-child(1)::before {
+  background: var(--hair);
+}
+
+/* High contrast: thicker borders, links always underlined, a heavier ring. */
+:root:is([data-theme="contrast"], [data-theme="contrast-dark"]) :is(button, input, kbd, figure, .reader, .arc-live) {
+  border-width: 2px;
+}
+:root:is([data-theme="contrast"], [data-theme="contrast-dark"]) a {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+}
+:root:is([data-theme="contrast"], [data-theme="contrast-dark"]) .arc-ring {
+  border-width: 6px;
+  box-shadow: 0 0 0 3px var(--bg);
+}
+
+/* Low glare: images are the brightest thing on a dark page, so dim them until they are looked at. */
+:root[data-theme="low-glare"] :is(figure img, .arc-live img) {
+  filter: brightness(0.8);
+  transition: filter 0.2s;
+}
+:root[data-theme="low-glare"] :is(figure:hover img, figure:focus-within img, figure[aria-current="true"] img, [data-tour] img, .arc-live:hover img) {
+  filter: none;
+}
+
+/* ---------- Text size: everything in rem follows the root ---------- */
+
+:root[data-text="125"] {
+  font-size: 125%;
+}
+:root[data-text="150"] {
+  font-size: 150%;
+}
+:root[data-text="200"] {
+  font-size: 200%;
+}
+/* Media queries keep measuring in the browser's 16px rem, so the sticky header would eat the screen: unstick it. */
+:root:is([data-text="150"], [data-text="200"]) {
+  scroll-padding-top: 0;
+}
+:root:is([data-text="150"], [data-text="200"]) :is(header, .reader) {
+  position: static; /* a magnified sticky bar would cover a quarter of the screen */
+}
+:root:is([data-text="150"], [data-text="200"]) [data-cursor] {
+  scroll-margin-top: 20vh;
+}
+:root:is([data-text="150"], [data-text="200"]) #content {
+  max-width: var(--measure); /* keeps lines short once the side panel moves below */
+}
+:root:is([data-text="150"], [data-text="200"]) figure[data-node-id] {
+  scroll-margin-top: 1rem;
+}
+/* One column from 150%: the side panel would squeeze the text. */
+@media (min-width: 68.75rem) {
+  :root:is([data-text="150"], [data-text="200"]) header {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: none;
+  }
+  :root:is([data-text="150"], [data-text="200"]) header > * {
+    grid-area: auto;
+    justify-self: start;
+  }
+  :root:is([data-text="150"], [data-text="200"]) main {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  :root:is([data-text="150"], [data-text="200"]) main > :is(#content, .arc-live) {
+    grid-column: 1;
+    position: static;
+    max-height: none;
+  }
+}
+
+/* ---------- Spacing: WCAG 1.4.12 values, a shorter line, no italics, no capitals ---------- */
+
+:root[data-spacing="wide"] {
+  --measure: 34rem;
+}
+:root[data-spacing="wide"] :is(p, li, figcaption, dd, dt, label, legend, summary, blockquote, td, th, h1, h2, h3, h4, .reader-pos) {
+  line-height: 1.6 !important;
+  letter-spacing: 0.12em !important;
+  word-spacing: 0.16em !important;
+  text-align: left;
+}
+:root[data-spacing="wide"] :is(#content p, #content li, figcaption) {
+  margin-bottom: 2em;
+}
+:root[data-spacing="wide"] #content {
+  max-width: var(--measure);
+}
+:root[data-spacing="wide"] :is(em, i, cite, figcaption strong, .landing-try li) {
+  font-style: normal !important;
+}
+/* Tracked capital micro-labels read as sentence case at a readable size. */
+:root[data-spacing="wide"] :is(#content > h1:only-child, figure[data-node-id], #content article > div[data-node-id]:has(> h2), #content li[data-node-id], .arc-live, .status, .landing-block h2)::before,
+:root[data-spacing="wide"] #live-title {
+  text-transform: none !important;
+  letter-spacing: 0.05em !important;
+  font-size: 0.9375rem !important;
+}
+
+/* ---------- Typeface ---------- */
+
+:root[data-font="legible"] {
+  --serif: var(--font-legible), "Atkinson Hyperlegible", Verdana, sans-serif;
+  --sans: var(--font-legible), "Atkinson Hyperlegible", Verdana, sans-serif;
+}
+:root[data-font="legible"] :is(h1, h2, h3, h4, .brand, .brand + p, figcaption strong) {
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+/* ---------- Focus line: only the item under the reading cursor stays bright ---------- */
+
+:root[data-focus="on"] {
+  --measure: 34rem;
+}
+:root[data-focus="on"] #content {
+  max-width: var(--measure);
+}
+:root[data-focus="on"] #content [data-node-id]:not([aria-current="true"]):not(:has([aria-current="true"])):not(:focus-within) {
+  opacity: 0.3;
+  transition: opacity 0.2s;
+}
+:root[data-focus="on"] #content [aria-current="true"] {
+  background: color-mix(in srgb, var(--ring) 9%, var(--bg));
+  box-shadow: 0 0 0 0.75rem color-mix(in srgb, var(--ring) 9%, var(--bg));
+  border-radius: 2px;
+}
+/* With nothing under the cursor yet (first load), nothing is dimmed. */
+:root[data-focus="on"] #content:not(:has([aria-current="true"])) [data-node-id] {
+  opacity: 1;
+}
+
+/* ---------- Motion ---------- */
+
+:root[data-motion="reduce"] :is(.arc-ring, [data-tour] section > div:first-child > div[aria-hidden="true"]) {
+  transition: none !important;
+}
+:root[data-motion="reduce"] .landing-demo i {
+  animation: none;
+}
+:root[data-motion="reduce"] * {
+  scroll-behavior: auto !important;
+}
+
+/* ---------- The Display button and panel (components/DisplaySettings.tsx) ---------- */
+
+header > .display {
+  justify-self: start;
+}
+@media (min-width: 68.75rem) {
+  header > .display {
+    grid-area: brand;
+    justify-self: end;
+    align-self: center;
+  }
+}
+.display-panel {
+  width: min(36rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  padding: 1.5rem;
+  color: var(--ink);
+  background: var(--bg);
+  border: 2px solid var(--edge);
+  border-radius: 20px;
+}
+.display-panel::backdrop {
+  background: rgb(0 0 0 / 0.25); /* light, so the page behind shows each change as it happens */
+}
+.display-panel h2 {
+  margin: 0 0 0.5rem;
+  font-size: 2rem;
+}
+.display-panel > p {
+  margin: 0 0 1rem;
+}
+.display-panel fieldset {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+}
+.display-panel legend {
+  padding: 0 0.25rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.display-panel label {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 2.75rem; /* large hit targets */
+  font-size: 1rem;
+  font-weight: 400;
+  cursor: pointer;
+}
+.display-panel input[type="radio"] {
+  width: 1.5rem;
+  height: 1.5rem;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--ring);
+}
+.display-panel summary {
+  padding: 0.625rem 0;
+  margin-bottom: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.display-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+/* ---------- System colours: follow them, keep the ring and focus visible ---------- */
+
+@media (forced-colors: active) {
+  .arc-ring,
+  [data-tour] section > div:first-child > div[aria-hidden="true"] {
+    border-color: Highlight !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    mix-blend-mode: normal;
+    forced-color-adjust: none;
+  }
+  :focus-visible {
+    outline-color: CanvasText;
+  }
+  :root[data-focus="on"] #content [aria-current="true"] {
+    outline: 3px solid Highlight;
+  }
+}

@@ -98,6 +98,7 @@ export function describe(d: Decision): string {
     read: "read again",
     stop: "stop",
     question: "a question",
+    display: `display: ${d.setting}`,
     none: "not a request",
   };
   return `${what[d.action]} · ${Math.round(d.confidence * 100)}% sure · ${Math.round(d.ms)} ms`;
