@@ -6,18 +6,20 @@ type Props = {
   results: Result[];
   ids: string[]; // cursor ids, one per result
   onOpen: (url: string) => void;
-  onBack: () => void;
+  onBack?: () => void; // only when a page is open behind the results: one tab stop fewer otherwise
 };
 
 export default function Results({ query, results, ids, onOpen, onBack }: Props) {
   return (
     <section aria-labelledby="results-title">
       <h1 id="results-title">Search results for {query}</h1>
-      <p>
-        <button type="button" onClick={onBack}>
-          Back to the page
-        </button>
-      </p>
+      {onBack && (
+        <p>
+          <button type="button" onClick={onBack}>
+            Back to the page
+          </button>
+        </p>
+      )}
       {results.length === 0 && <p>No results.</p>}
       <ol>
         {results.map((r, i) => (

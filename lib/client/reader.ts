@@ -5,27 +5,29 @@ import { kokoro, prefetch as prefetchLive, say as sayLive, stop as stopLive } fr
 export const VOICE = "af_bella";
 const clipUrl = (text: string) => `/api/speak?text=${encodeURIComponent(text)}&voice=${VOICE}`;
 
-const MAX_CHUNK = 450; // the server rejects text over 600 characters
+export const MAX_CHUNK = 300; // the server rejects text over 600 characters; shorter clips also start sooner
 
 function hardSplit(s: string): string[] {
   const out: string[] = [];
   let rest = s;
   while (rest.length > MAX_CHUNK) {
-    const head = rest.slice(0, MAX_CHUNK);
-    const cut = Math.max(head.lastIndexOf(", "), head.lastIndexOf("; "), head.lastIndexOf(": "), head.lastIndexOf(" "));
-    const at = cut > 100 ? cut + 1 : MAX_CHUNK;
+    const head = rest.slice(0, MAX_CHUNK + 1);
+    const clause = Math.max(head.lastIndexOf(", "), head.lastIndexOf("; "), head.lastIndexOf(": "), head.lastIndexOf(" – "), head.lastIndexOf(" — "));
+    const cut = clause > 100 ? clause + 1 : head.lastIndexOf(" ");
+    const at = cut > 0 ? cut : MAX_CHUNK; // no space at all: cut mid-word rather than send a clip the server refuses
     out.push(rest.slice(0, at).trim());
     rest = rest.slice(at).trim();
   }
   return rest ? [...out, rest] : out;
 }
 
-/** Sentences, so the first one can play while the rest are still being made. shortcut: abbreviation list is short, upgrade if odd splits are heard. */
+/** Sentences, so the first one can play while the rest are still being made. Every piece is 1 to MAX_CHUNK characters.
+ * shortcut: abbreviation list is short, upgrade if odd splits are heard. */
 export function splitSentences(text: string): string[] {
   const out: string[] = [];
   for (const para of text.split(/\n{2,}/)) {
     let buf = "";
-    for (const part of para.split(/(?<=[.!?])\s+(?=[A-Z0-9("“[])/)) {
+    for (const part of para.replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s+(?=[A-Z0-9("“[])/)) {
       buf = buf ? `${buf} ${part}` : part;
       if (buf.length < 25 || /\b(et al|e\.g|i\.e|Fig|Figs|vs|approx|Eq|No|Dr|cf)\.$/.test(buf)) continue;
       out.push(buf);
@@ -33,7 +35,7 @@ export function splitSentences(text: string): string[] {
     }
     if (buf.trim()) out.push(buf);
   }
-  return out.flatMap((c) => (c.length <= MAX_CHUNK ? [c] : hardSplit(c)));
+  return out.flatMap((c) => (c.length <= MAX_CHUNK ? [c] : hardSplit(c))).filter(Boolean);
 }
 
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
@@ -80,26 +82,27 @@ export function said(text: string) {
 }
 
 const learn = (r: Response) => void (r.headers.get("x-arc-kokoro") === "off" && (kokoro.off = true));
+const wait = (ms: number, signal: AbortSignal) => new Promise<void>((r) => (setTimeout(r, ms), signal.addEventListener("abort", () => r())));
 
+/** A clip URL, or null when Kokoro is off or the clip failed twice. A busy server (503) is waited out, not counted as a failure. */
 async function fetchClip(text: string, signal: AbortSignal): Promise<string | null> {
-  for (let tries = 0; tries < 2; tries++) {
+  let failed = 0;
+  for (let busy = 0; failed < 2 && busy < 20 && !signal.aborted; ) {
     try {
       const r = await fetch(clipUrl(text), { signal });
       if (r.ok) return URL.createObjectURL(await r.blob());
       learn(r);
-      return null; // an answer that is not a clip (off, busy, failed): the caller uses the Live voice at once
+      if (kokoro.off) return null;
+      if (r.status === 503) busy++;
+      else failed++;
     } catch {
-      if (signal.aborted) return null;
+      failed++;
     }
+    await wait(700, signal);
   }
+  if (!signal.aborted) console.warn("[arc-voice] no kokoro clip after retries:", text.slice(0, 60));
   return null;
 }
-
-// A Kokoro clip later than this is spoken by the Gemini voice instead (first audio in about 1.3 s). After one miss the
-// rest of the page waits less. The hosted copy (2 cores) needs about 10 s per new sentence; a laptop answers in under 1 s.
-const PATIENCE = 4000; // laptop Kokoro can take ~2.6 s when three new clips queue; only a slow host should fall back
-const PATIENCE_AFTER_MISS = 1200;
-const SLOW = Symbol("slow");
 
 /** Ask the server to make (and cache) a clip ahead of time. */
 export const prefetchClip = (text: string) => void (!kokoro.off && fetch(clipUrl(text)).then(learn, () => {}));
@@ -110,44 +113,32 @@ class Speaker {
   private ctl: AbortController | null = null;
   private audio: HTMLAudioElement | null = null;
   private release: (() => void) | null = null;
-  private patience = PATIENCE;
   private live = false; // the Gemini voice is speaking a chunk
 
-  /** A new page starts with the full patience again. */
-  resetPatience() {
-    this.patience = PATIENCE;
-  }
-
-  /** Speaks the chunks in order, resolves when done or cancelled. The next two are fetched while one plays. */
-  async say(chunks: string[]): Promise<void> {
+  /** Speaks the chunks in order; resolves true when all were spoken, false when cancelled. At most two clips are asked for
+   * at once (the one to play and the next), so a reading never fills the server's queue (1 running + 4 waiting). */
+  async say(chunks: string[]): Promise<boolean> {
     this.cancel();
     const mine = this.gen;
     const ctl = (this.ctl = new AbortController());
     const clips: Promise<string | null>[] = [];
-    const get = (i: number) => (i < chunks.length ? (clips[i] ??= fetchClip(chunks[i], ctl.signal)) : null);
+    const get = (i: number) => void (i < chunks.length && !kokoro.off && (clips[i] ??= fetchClip(chunks[i], ctl.signal)));
     for (let i = 0; i < chunks.length && mine === this.gen; i++) {
-      let url: string | null | typeof SLOW = null;
-      if (!kokoro.off) {
-        get(i);
-        get(i + 1);
-        get(i + 2);
-        url = await Promise.race([clips[i], new Promise<typeof SLOW>((r) => setTimeout(r, this.patience, SLOW))]);
-        if (mine !== this.gen) break;
-      }
-      if (url && url !== SLOW) await this.play(url);
+      get(i);
+      get(i + 1);
+      const url = kokoro.off ? null : await clips[i];
+      if (mine !== this.gen) break;
+      if (url) await this.play(url);
       else {
-        // This chunk goes to the Gemini voice. When slow, the Kokoro request keeps running so the clip is cached for next time.
-        if (url === SLOW) {
-          console.info("[arc-voice] kokoro slow, used live voice");
-          this.patience = PATIENCE_AFTER_MISS;
-        } else console.info("[arc-voice] no kokoro clip, used live voice");
+        // Kokoro is off on this host, or this one clip failed twice: the Gemini voice says it, then Kokoro carries on.
         if (kokoro.off && i + 1 < chunks.length) prefetchLive(chunks[i + 1]); // one ahead: Live costs a round trip per chunk
         this.live = true;
         await sayLive(chunks[i]);
         this.live = false;
       }
     }
-    for (const c of clips) void c.then((u) => u && URL.revokeObjectURL(u));
+    for (const c of clips) void c?.then((u) => u && URL.revokeObjectURL(u));
+    return mine === this.gen;
   }
 
   setRate(r: number) {

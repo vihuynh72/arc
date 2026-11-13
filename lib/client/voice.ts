@@ -24,7 +24,8 @@ interface Entry {
 
 /** Push-to-talk callbacks: the caller decides (Snap first) before Gemini's answer or command is used. */
 export interface AskHooks {
-  heard(text: string): void;
+  heard(text: string, alternatives?: string[]): void;
+  revised?(text: string, alternatives: string[]): void; // a better reading came after "heard" and differs
   command(name: string, args: Record<string, unknown>): void;
   first(): void; // Gemini's first audio or command
   partial?(text: string): void; // the whole transcript so far, while the key is still held
@@ -58,7 +59,8 @@ function socket(): WebSocket {
     const m = JSON.parse(ev.data);
     const e = byId.get(m.id);
     if (e?.on && (m.type === "audio" || m.type === "command") && !e.chunks.length) e.on.first();
-    if (m.type === "heard") return e?.on?.heard(m.text ?? "");
+    if (m.type === "heard") return e?.on?.heard(m.text ?? "", m.alternatives);
+    if (m.type === "heard_revised") return e?.on?.revised?.(m.text ?? "", m.alternatives ?? []);
     if (m.type === "heard_partial") return e?.on?.partial?.(m.text ?? "");
     if (m.type === "command") {
       if (e?.on) return e.on.command(m.name, m.args ?? {});
@@ -304,6 +306,8 @@ export const askAudio = (b64: string) => send({ type: "ask_audio", data: b64 });
 
 /** Ends the question (the mic is closed). */
 export const askEnd = () => send({ type: "ask_end" });
+/** What the browser heard and did for an ask, for the relay's local log (.cache/asks). */
+export const askResult = (r: { id: string; chrome?: string; decided: Record<string, unknown> }) => send({ type: "ask_result", ...r });
 
 /** Drops Gemini's reply to a question: the relay stops sending it and it is never played. */
 export const dropAnswer = (id: string) => send({ type: "cancel", id });

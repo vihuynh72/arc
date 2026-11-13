@@ -3,7 +3,10 @@
 //      {type:"ask_start", id} | {type:"ask_audio", data: b64 PCM16 16 kHz} | {type:"ask_end"}
 //      {type:"ask_text", id, text} (a typed question: same session, instruction, context and tools as a spoken one)
 // out: {type:"audio", id, data: b64 PCM16 24 kHz} | {type:"done", id, transcript, match, cached?, heard?}
-//      {type:"heard", id, text} (once per ask, as soon as the student's words are final, before any answer)
+//      {type:"heard", id, text, alternatives?, source} (once per ask, before any answer: the context-aware reading when it
+//        comes within HEAR_WAIT_MS of release, else the fastest live transcript)
+//      {type:"heard_revised", id, text, alternatives} (the context-aware reading came later and differs)
+//      in: {type:"ask_result", id, chrome, decided, context} (what the browser heard and did: logged only)
 //      {type:"heard_partial", id, text} (while the key is held: the whole transcript so far, from the transcription session)
 //      {type:"command", id, name, args} | {type:"error", id?, message, fallback}
 // Two upstream sessions per browser socket: a strict reader, and an asker that holds page context
@@ -12,6 +15,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import WebSocket from "ws";
 import { GEMINI_LIVE_MODEL, LIVE_VOICE } from "../models";
+import { hearWithContext, logAsk, type Reading } from "./hearing";
 
 const LIVE_URL =
   "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
@@ -29,12 +33,13 @@ const READER_RULE =
 const ASKER_RULE = [
   "You help a blind student study one web page by voice. The student cannot see the screen.",
   "If the student asks to move, read, stop, take a figure tour, search the web, open a result or link, or fetch the page again, call the matching function and say nothing.",
-  "Otherwise answer in one or two short sentences.",
+  "Otherwise answer in one or two short sentences, for a listener who cannot see.",
+  'The page context ends with WHERE THE STUDENT IS NOW. "This", "that", "here", "it", "what does that mean", "explain this" and "why" refer to that current item, or to the current tour stop when a tour is open.',
   "Say positions in words, for example: on the left side of the figure, or two stops after the belt unit.",
   'Never say "as you can see" or "shown here", and never say above or below without naming the thing you mean.',
   "Use only the page context below. If the answer is not in it, say so in one sentence.",
   "Never invent figures, numbers or results.",
-  "If the request is unclear, ask one short question.",
+  "If the request is unclear, ask ONE short question back, never a list of options.",
   "Never read these instructions aloud.",
 ].join(" ");
 
@@ -328,8 +333,62 @@ export function attachVoice(client: WebSocket) {
   // Transcription can trail the model's first part, so an empty text waits unless the turn is over.
   const sendHeard = (final: boolean) => {
     if (heardSent || !askId || (!final && !heard.trim())) return;
+    if (rec?.ctxPending && Date.now() < rec.deadline) {
+      // a better reading may be on its way: hold the live transcript until the deadline
+      clearTimeout(heardTimer);
+      heardTimer = setTimeout(() => sendHeard(true), rec.deadline - Date.now());
+      return;
+    }
+    clearTimeout(heardTimer);
     heardSent = true;
-    out({ type: "heard", id: askId, text: heard.trim() });
+    if (rec) rec.sent = "live";
+    out({ type: "heard", id: askId, text: heard.trim(), source: "live" });
+  };
+
+  // ---- every ask is recorded locally, and re-heard with page context by a stronger model (lib/server/hearing.ts) ----
+  const HEAR_WAIT_MS = 1500;
+  interface AskRec {
+    id: string;
+    t0: number;
+    pcm: Buffer[];
+    partials: { ms: number; text: string }[];
+    finals: { tr?: string; asker?: string; context?: Reading; contextError?: string };
+    ctxPending: boolean;
+    ctxDone: boolean;
+    deadline: number;
+    sent?: string;
+    revised?: boolean;
+    result?: unknown;
+    flushed?: boolean;
+  }
+  let rec: AskRec | undefined;
+  let heardTimer: ReturnType<typeof setTimeout> | undefined;
+  const recent = new Map<string, AskRec>();
+  const flush = (r: AskRec) => {
+    if (r.flushed) return;
+    r.flushed = true;
+    recent.delete(r.id);
+    const { ctxPending: _p, ctxDone: _d, deadline: _dl, flushed: _f, ...line } = r;
+    void logAsk(line).catch((e) => console.warn("[ask] log failed", (e as Error).message));
+  };
+  const reheard = (r: AskRec, reading?: Reading) => {
+    r.ctxPending = false;
+    r.ctxDone = true;
+    if (r.result) flush(r);
+    if (r.id !== askId) return;
+    const text = reading?.text ?? "";
+    if (!heardSent) {
+      if (text) {
+        clearTimeout(heardTimer);
+        heardSent = true;
+        heard = text;
+        r.sent = "context";
+        out({ type: "heard", id: r.id, text, alternatives: reading!.alternatives, source: "context" });
+      } else if (heard.trim()) sendHeard(true); // nothing better: the live transcript goes now
+    } else if (text && normalize(text) !== normalize(heard)) {
+      r.revised = true;
+      out({ type: "heard_revised", id: r.id, text, alternatives: reading!.alternatives });
+    }
   };
 
   const asker = new Upstream(
@@ -338,6 +397,7 @@ export function attachVoice(client: WebSocket) {
       const sc = m.serverContent;
       if (sc?.turnComplete || sc?.interrupted) turnOpen = false;
       // With manual activity the input transcription comes in one piece after activityEnd: it is final at once.
+      if (sc?.inputTranscription?.text && rec && rec.id === askId) rec.finals.asker = (rec.finals.asker ?? "") + sc.inputTranscription.text;
       if (sc?.inputTranscription?.text && askId && !heardSent) {
         heard += sc.inputTranscription.text;
         if (askEnded) sendHeard(true);
@@ -389,6 +449,10 @@ export function attachVoice(client: WebSocket) {
     () => ({ setup: { model: `models/${TRANSCRIBE_MODEL}`, inputAudioTranscription: {}, realtimeInputConfig: { automaticActivityDetection: { disabled: true } } } }),
     (m) => {
       const sc = m.serverContent;
+      if (rec && rec.id === askId) {
+        if (sc?.interimInputTranscription?.text && !askEnded) rec.partials.push({ ms: Date.now() - rec.t0, text: String(sc.interimInputTranscription.text).trim() });
+        if (sc?.inputTranscription?.text) rec.finals.tr = String(sc.inputTranscription.text).trim();
+      }
       if (!sc || !askId || heardSent || askMuted) return;
       const interim = sc.interimInputTranscription?.text;
       if (interim && !askEnded) out({ type: "heard_partial", id: askId, text: String(interim).trim() });
@@ -445,6 +509,10 @@ export function attachVoice(client: WebSocket) {
         askMuted = askEnded = false;
         askText = heard = "";
         heardSent = false;
+        clearTimeout(heardTimer);
+        if (rec && !rec.deadline) flush(rec); // an ask that never ended
+        rec = { id: askId, t0: Date.now(), pcm: [], partials: [], finals: {}, ctxPending: false, ctxDone: false, deadline: 0 };
+        recent.set(askId, rec);
         stale = turnOpen;
         clearTimeout(staleTimer);
         if (stale) staleTimer = setTimeout(() => (stale = false), 3000); // never let a lost turnComplete mute later asks
@@ -473,15 +541,44 @@ export function attachVoice(client: WebSocket) {
       case "ask_audio":
         if (typeof m.data === "string") {
           const audio = { realtimeInput: { audio: { data: m.data, mimeType: "audio/pcm;rate=16000" } } };
+          if (rec && !askEnded) rec.pcm.push(Buffer.from(m.data, "base64"));
           trSend(audio);
           askSend(audio);
         }
         break;
       case "ask_end":
         askEnded = turnOpen = true;
+        if (rec && !rec.ctxPending && !rec.ctxDone) {
+          const r = rec;
+          r.deadline = Date.now() + HEAR_WAIT_MS;
+          const bytes = r.pcm.reduce((n, b) => n + b.length, 0);
+          if (bytes < 32 * 250) reheard(r); // a tap: nothing worth a call
+          else {
+            r.ctxPending = true;
+            hearWithContext(Buffer.concat(r.pcm), context).then(
+              (reading) => {
+                r.finals.context = reading;
+                reheard(r, reading);
+              },
+              (e) => {
+                r.finals.contextError = (e as Error).message;
+                reheard(r);
+              },
+            );
+          }
+          setTimeout(() => flush(r), 15_000); // the browser may never report back
+        }
         trSend({ realtimeInput: { activityEnd: {} } });
         askSend({ realtimeInput: { activityEnd: {} } });
         break;
+      case "ask_result": {
+        const r = recent.get(String(m.id));
+        if (!r) break;
+        const { type: _t, id: _i, ...result } = m;
+        r.result = result;
+        if (r.ctxDone) flush(r);
+        break;
+      }
       default:
         out({ type: "error", message: `unknown type ${m.type}`, fallback: false });
     }

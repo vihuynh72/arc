@@ -3,12 +3,12 @@ import type { Decision, Item } from "@/lib/server/decide";
 
 export type { Decision };
 
-export async function decide(utterance: string, items: Item[], inTour = false): Promise<Decision> {
+export async function decide(utterance: string, items: Item[], inTour = false, state?: Record<string, string>): Promise<Decision> {
   const res = await fetch("/api/decide", {
     method: "POST",
     headers: { "content-type": "application/json" },
     // SubQ needs at least two target options ("none" is always one): an empty page (nothing loaded yet) got HTTP 422.
-    body: JSON.stringify({ utterance, items: items.length ? items : [{ id: "top", label: "the top of the page" }], inTour }),
+    body: JSON.stringify({ utterance, items: items.length ? items : [{ id: "top", label: "the top of the page" }], inTour, state }),
   });
   if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? "Decision failed.");
   return (await res.json()) as Decision;
@@ -23,5 +23,5 @@ export function dispatchDecision(d: Decision, items: Item[]) {
   else if (d.action === "search") send("search", { query: d.query });
   else if (d.action === "open") send("open", { id: d.target });
   else if (d.action === "display") send("display", { setting: d.setting });
-  else if (d.action === "next" || d.action === "prev" || d.action === "read" || d.action === "stop" || d.action === "refresh") send(d.action, {});
+  else if (d.action === "next" || d.action === "prev" || d.action === "read" || d.action === "stop" || d.action === "refresh" || /^(?:next|prev)(?:Figure|Heading)$/.test(d.action)) send(d.action, {});
 }

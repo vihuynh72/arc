@@ -3,29 +3,114 @@ import { decide, dispatchDecision, type Decision } from "@/lib/client/decide";
 import { said, speaker } from "@/lib/client/reader";
 import { answerText, askText, playAnswer } from "@/lib/client/voice";
 import type { Item } from "@/lib/server/decide";
+import { resolveLocal, type Ctx, type Mode, type Offer, type Resolved } from "@/lib/intent";
 
-export const NOT_SURE = "I am not sure what you meant. Try again.";
+export const NOT_SURE = "I did not catch that. Say help for what you can do.";
 const ASK_ALOUD = "Hold Space and ask that out loud.";
 const ACTION_SURE = 0.6; // same as ACTION_MIN in lib/server/decide.ts, which the browser does not import
 
 // What Twin currently shows; Twin keeps it fresh so callers only pass the text.
-const ctx = { items: [] as Item[], inTour: false };
+const ctx = { items: [] as Item[], inTour: false, mode: "landing" as Mode, title: "" };
+// Where the cursor is (from Reader's arc:cursor), the last two commands, and an offer such as "Say tour to explore it."
+const here = { id: null as string | null, kind: null as string | null, heading: "", back: false };
+let recent: string[] = [];
+let offer: Offer | undefined;
+let listening = false;
+function listen() {
+  if (listening || typeof window === "undefined") return;
+  listening = true;
+  window.addEventListener("arc:cursor", (e) => {
+    const d = (e as CustomEvent<{ id: string; kind: string; heading: string; back?: boolean }>).detail;
+    if (d) Object.assign(here, { id: d.id, kind: d.kind, heading: d.heading, back: !!d.back });
+  });
+  window.addEventListener("arc:command", (e) => {
+    const n = (e as CustomEvent<{ name: string; args?: { silent?: boolean } }>).detail;
+    if (n?.name && !n.args?.silent) recent = [...recent, n.name].slice(-2);
+  });
+  window.addEventListener("arc:offer", (e) => void (offer = { ...(e as CustomEvent<Omit<Offer, "at">>).detail, at: Date.now() }));
+}
+
 // Decisions by text for the current context: the held-key pre-ask, the early transcript and Live's "heard" share one call.
 let cache = new Map<string, Promise<Decision>>();
-export function setCommandContext(items: Item[], inTour: boolean) {
+export function setCommandContext(items: Item[], inTour: boolean, page: { mode: Mode; title: string } = { mode: "landing", title: "" }) {
+  listen();
   ctx.items = items;
   ctx.inTour = inTour;
+  ctx.mode = page.mode;
+  ctx.title = page.title;
   cache = new Map();
 }
 
-const key = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+/** The state the local grammar, Snap and "where am i" decide over. */
+export function currentCtx(): Ctx {
+  const index = here.id ? ctx.items.findIndex((i) => i.id === here.id) : -1;
+  const kind = index < 0 ? null : ctx.mode === "results" ? "result" : (here.kind as Ctx["onKind"]);
+  // The tour's own line ("Stop 2 of 6: right thigh."), read from the page: FigureTour does not announce its stops.
+  const stop = ctx.inTour ? document.querySelector("[data-tour] p strong")?.textContent?.replace(/\.$/, "").replace(/^S/, "s") : undefined;
+  return {
+    mode: ctx.inTour ? "tour" : ctx.mode,
+    onKind: ctx.inTour ? "figure" : kind,
+    index,
+    total: ctx.items.length,
+    lastCommand: recent.join(", ") || undefined,
+    pendingOffer: offer,
+    canGoBack: here.back,
+    label: index >= 0 ? here.heading : undefined,
+    title: ctx.title,
+    stop: stop || undefined,
+    now: Date.now(),
+  };
+}
 
-/** Asks Snap without acting; the same text asks once per page context. */
+const speak = (line: string) => {
+  said(line);
+  void speaker.say([line]);
+};
+const send = (name: string, args: object = {}) => window.dispatchEvent(new CustomEvent("arc:command", { detail: { name, args } }));
+
+/**
+ * The local grammar (lib/intent.ts), 0 ms, no model: runs a short request at once and returns what it did, or null.
+ * alternatives: other readings of the same speech; the first that resolves wins.
+ */
+export function runLocal(text: string, alternatives: string[] = []): Resolved | null {
+  const t0 = performance.now();
+  const c = currentCtx();
+  let r: Resolved | null = null;
+  for (const t of [text, ...alternatives]) if ((r = resolveLocal(t, c))) break;
+  if (!r) return null;
+  offer = undefined; // used, refused, or overtaken by another request
+  if (r.name !== "none") {
+    // The tour takes one step per command; the reader takes one combined move and reads only where it lands.
+    if (c.mode === "tour" && r.steps) for (let i = 0; i < r.steps; i++) send(r.name);
+    else send(r.name, { ...r.args, ...(r.steps ? { steps: r.steps } : {}) });
+  }
+  if (r.say) speak(r.say);
+  console.info(`[arc-timing] local "${text}" -> ${r.name}${r.steps ? ` x${r.steps}` : ""}${r.say ? ` says "${r.say}"` : ""} in ${(performance.now() - t0).toFixed(1)} ms`);
+  return r;
+}
+
+/** Short state for Snap, so "the one after that" or "this figure" can be decided. */
+function snapState(): Record<string, string> {
+  const c = currentCtx();
+  const item = ctx.items[c.index];
+  return {
+    mode: c.mode,
+    current_item: item ? `${item.label} (${c.onKind})` : "none yet",
+    position: c.index >= 0 ? `${c.index + 1} of ${c.total}` : `before the first of ${c.total}`,
+    last_commands: c.lastCommand ?? "none",
+    offer_pending: c.pendingOffer && Date.now() - c.pendingOffer.at < 20_000 ? `${c.pendingOffer.name} ${JSON.stringify(c.pendingOffer.args ?? {})}` : "none",
+    ...(c.stop ? { tour_stop: c.stop } : {}),
+  };
+}
+
+const key = (text: string) => `${text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim()}|${here.id}`;
+
+/** Asks Snap without acting; the same text asks once per page context and cursor position. */
 export function preDecide(text: string): Promise<Decision> {
   const k = key(text);
   let p = cache.get(k);
   if (!p) {
-    p = decide(text, ctx.items, ctx.inTour);
+    p = decide(text, ctx.items, ctx.inTour, snapState());
     p.catch(() => cache.delete(k)); // a failure is retried next time
     cache.set(k, p);
   }
@@ -33,7 +118,10 @@ export function preDecide(text: string): Promise<Decision> {
 }
 
 /** Runs a decision Arc is sure of. */
-export const act = (d: Decision) => dispatchDecision(d, ctx.items);
+export const act = (d: Decision) => {
+  if (d.act) offer = undefined;
+  dispatchDecision(d, ctx.items);
+};
 
 const unsure = (d: Decision) => !d.act && d.action !== "question" && d.action !== "none";
 
@@ -63,14 +151,15 @@ async function askTyped(text: string): Promise<string | null> {
  * Typed (not quiet): a sure request runs; goto or tour with no match says what was not found; a question, or an unsure
  * request, is answered by Gemini and onAnswer gets its transcript. Kokoro's line is only the fallback when the relay fails.
  */
-export async function submitUtterance(text: string, { quiet = false, onAnswer }: { quiet?: boolean; onAnswer?: (text: string) => void } = {}): Promise<Decision> {
+export async function submitUtterance(
+  text: string,
+  { quiet = false, onAnswer, alternatives }: { quiet?: boolean; onAnswer?: (text: string) => void; alternatives?: string[] } = {},
+): Promise<Decision & { local?: string }> {
+  const r = runLocal(text, alternatives);
+  if (r) return localDecision(r);
   const d = await preDecide(text);
   act(d);
   if (quiet) return d;
-  const speak = (line: string) => {
-    said(line);
-    void speaker.say([line]);
-  };
   if (notFound(d)) speak(notFoundLine(d));
   else if (viaGemini(d))
     void askTyped(text)
@@ -82,8 +171,15 @@ export async function submitUtterance(text: string, { quiet = false, onAnswer }:
   return d;
 }
 
+/** A local grammar result in the shape callers already handle: sure, nothing more to dispatch. */
+export const localDecision = (r: Resolved): Decision & { local: string } => ({
+  action: "none", confidence: 1, target: null, targetConfidence: 1, setting: null, settingConfidence: 0, query: "", ms: 0, act: true,
+  local: `${r.name}${r.steps ? ` x${r.steps}` : ""}${r.say ? `: "${r.say}"` : ""}`,
+});
+
 /** One short plain line: what was decided, how sure, how fast. */
-export function describe(d: Decision): string {
+export function describe(d: Decision & { local?: string }): string {
+  if (d.local) return `${d.local} · local grammar · 0 ms`;
   if (notFound(d)) return notFoundLine(d);
   if (unsure(d)) return `not sure what you meant · ${Math.round(d.confidence * 100)}% sure · ${Math.round(d.ms)} ms`;
   const label = ctx.items.find((i) => i.id === d.target)?.label;
@@ -95,6 +191,10 @@ export function describe(d: Decision): string {
     refresh: "fetch the page live",
     next: "next",
     prev: "previous",
+    nextFigure: "next figure",
+    prevFigure: "previous figure",
+    nextHeading: "next heading",
+    prevHeading: "previous heading",
     read: "read again",
     stop: "stop",
     question: "a question",

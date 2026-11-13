@@ -17,6 +17,8 @@ export default function check() {
   assert.equal(shouldAct("open", 0.9, "r02", 0.9), true);
   assert.equal(shouldAct("open", 0.9, null, 0.9), false);
   assert.equal(shouldAct("refresh", 0.8, null, 0), true);
+  assert.equal(shouldAct("nextFigure", 0.8, null, 0), true);
+  assert.equal(shouldAct("prevHeading", ACTION_MIN - 0.01, null, 0), false);
   assert.equal(shouldAct("display", 0.9, "bigger", 0.9), true);
   assert.equal(shouldAct("display", 0.9, null, 0.9), false);
   assert.equal(shouldAct("display", 0.9, "bigger", TARGET_MIN - 0.01), false);

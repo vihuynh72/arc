@@ -8,16 +8,17 @@
 // Kokoro reading the node where the cursor lands is the confirmation, so this control speaks none of its own.
 import { useEffect, useRef, useState } from "react";
 import { startMic } from "@/lib/client/audio";
-import { act, describe, preDecide, submitUtterance } from "@/lib/client/command";
+import { act, describe, preDecide, runLocal, submitUtterance } from "@/lib/client/command";
+import { actNow, HEARD_NOTHING, heardUnsure, TOO_QUIET } from "@/lib/client/hearing";
 import { prefetchClip, speaker } from "@/lib/client/reader";
-import { answerText, askAudio, askEnd, askStart, audioState, chime, dropAnswer, playAnswer, say, stop, type AskHooks } from "@/lib/client/voice";
+import { answerText, askAudio, askEnd, askResult, askStart, audioState, chime, dropAnswer, playAnswer, say, stop, type AskHooks } from "@/lib/client/voice";
 
 const GREETING = "Arc. Hold Space and tell me what to study, or paste a link.";
 const STABLE_MS = 350; // interim words unchanged this long are pre-asked to Snap
 const TAP_MS = 200; // a Space tap shorter than this is not a question: nothing is sent to Gemini
 
 type Args = Record<string, unknown>;
-type Mic = (onChunk: (b64: string) => void) => Promise<() => void>;
+type Mic = (onChunk: (b64: string) => void) => Promise<() => void | Promise<void>>;
 interface Ask {
   id: string;
   t0: number; // key release
@@ -28,6 +29,8 @@ interface Ask {
   words: string; // early transcript so far, from whichever source spoke last
   wordsAt: number; // when words last changed
   fromGemini: boolean; // words came from Gemini's transcription, which trails speech by about 0.8 s
+  gem?: { text: string; at: number }; // the last early words from each source, for the two-source rule at release
+  chrome?: { text: string; at: number };
   early?: Promise<void>; // the decision on the browser transcript; "heard" waits for it
   rec?: { stop(): void; abort(): void };
 }
@@ -52,7 +55,7 @@ const typing = (t: EventTarget | null) => !!(t as HTMLElement | null)?.closest?.
 export default function AskButton() {
   const [state, setState] = useState<"idle" | "listening" | "error">("idle");
   const [line, setLine] = useState("");
-  const mic = useRef<{ ask: Ask; close: Promise<(() => void) | undefined> } | undefined>(undefined);
+  const mic = useRef<{ ask: Ask; close: Promise<(() => void | Promise<void>) | undefined> } | undefined>(undefined);
   const current = useRef<Ask | undefined>(undefined);
   const lastCommand = useRef(0);
   const greeted = useRef(false);
@@ -64,8 +67,18 @@ export default function AskButton() {
       lastCommand.current = performance.now();
       if ((e as CustomEvent<{ name: string }>).detail?.name === "stop") stop();
     };
+    let warned = false;
+    const onQuiet = () => {
+      if (warned) return; // once per page: a quiet room is not news twice
+      warned = true;
+      void speaker.say([TOO_QUIET]);
+    };
     window.addEventListener("arc:command", onCommand);
-    return () => window.removeEventListener("arc:command", onCommand);
+    window.addEventListener("arc:quiet", onQuiet);
+    return () => {
+      window.removeEventListener("arc:command", onCommand);
+      window.removeEventListener("arc:quiet", onQuiet);
+    };
   }, []);
 
   const runGemini = (ask: Ask, name: string, args: Args) => {
@@ -79,6 +92,7 @@ export default function AskButton() {
   const toGemini = (ask: Ask) => {
     if (ask.owner || current.current !== ask) return;
     ask.owner = "gemini";
+    askResult({ id: ask.id, chrome: ask.chrome?.text, decided: { source: "gemini", action: ask.held[0]?.name ?? "answer" } });
     const c = ask.held.shift();
     if (c) return runGemini(ask, c.name, c.args);
     console.info(`[arc-timing] ${ask.id} gemini audio played`);
@@ -90,6 +104,7 @@ export default function AskButton() {
   // Snap is sure: act now, drop Gemini's reply.
   const toSnap = (ask: Ask, why: string) => {
     ask.owner = "snap";
+    askResult({ id: ask.id, chrome: ask.chrome?.text, decided: { source: why } });
     dropAnswer(ask.id);
     console.info(`[arc-timing] ${ask.id} gemini reply dropped (${why})`);
     if (lastCommand.current >= ask.t0) time(ask, "cursor command dispatched", lastCommand.current);
@@ -110,15 +125,18 @@ export default function AskButton() {
       if (ask.owner === "gemini") runGemini(ask, name, args);
       else if (!ask.owner) ask.held.push({ name, args });
     },
-    heard: async (text) => {
+    heard: async (text: string, alternatives?: string[]) => {
       time(ask, "live heard");
       await ask.early;
       if (ask.owner) return; // the early transcript already decided this ask
       setLine(`Heard "${text}"`);
-      if (!text.trim()) return toGemini(ask);
+      if (!text.trim()) {
+        void speaker.say([HEARD_NOTHING]); // a blind student cannot read the "Heard" line
+        return toSnap(ask, "nothing heard");
+      }
       let d;
       try {
-        d = await submitUtterance(text, { quiet: true });
+        d = await submitUtterance(text, { quiet: true, alternatives }); // the local grammar first (0 ms), then Snap
       } catch {
         setLine(`Heard "${text}" · Snap failed · Gemini answers`);
         return toGemini(ask);
@@ -129,7 +147,18 @@ export default function AskButton() {
       const gemini = !d.act && !(d.action === "none" && d.confidence >= 0.6);
       setLine(`Heard "${text}" · ${describe(d)}${gemini ? " · Gemini answers" : ""}`);
       if (gemini) return toGemini(ask);
+      if (!d.act) void speaker.say([heardUnsure(text)]); // nothing happens: say so, with the words heard
       toSnap(ask, "live transcript");
+    },
+    revised: (text, alternatives) => {
+      time(ask, `context reading revised to "${text}"`);
+      if (ask.ran || lastCommand.current >= ask.t0 || current.current !== ask) return; // something already ran
+      void submitUtterance(text, { quiet: true, alternatives }).then((d) => {
+        if (!d.act || current.current !== ask) return;
+        stop(); // Gemini's question back is no longer needed
+        setLine(`Heard "${text}" · ${describe(d)} · revised`);
+        askResult({ id: ask.id, chrome: ask.chrome?.text, decided: { source: "context revised", action: d.action, target: d.target, confidence: d.confidence, act: d.act } });
+      }, () => {});
     },
   });
 
@@ -141,6 +170,7 @@ export default function AskButton() {
     ask.words = w;
     ask.wordsAt = performance.now();
     ask.fromGemini = fromGemini;
+    ask[fromGemini ? "gem" : "chrome"] = { text: w, at: ask.wordsAt };
     clearTimeout(timers.current.get(ask));
     if (w) timers.current.set(ask, setTimeout(() => mic.current?.ask === ask && void preDecide(w).catch(() => {}), STABLE_MS));
   };
@@ -196,19 +226,29 @@ export default function AskButton() {
     timers.current.delete(ask);
     // Taken at release; later results are ignored. Gemini's interim words trail speech, so they are used only when they
     // had already stopped changing (the student had finished); otherwise its final "heard" (about 0.3 s) decides.
-    const stable = !ask.fromGemini || performance.now() - ask.wordsAt >= STABLE_MS;
-    const words = stable ? ask.words : "";
+    // Act at release only when Gemini and Chrome agree, or one of them said exactly next/back/again/stop and kept it
+    // for STABLE_MS. Anything else waits for "heard": a wrong action costs a blind student far more than 500 ms.
+    const sure = actNow({ gemini: ask.gem, chrome: ask.chrome }, performance.now(), STABLE_MS);
+    const words = sure?.text ?? "";
+    if (sure) time(ask, `early words agreed by ${sure.source}`);
     const tap = performance.now() - ask.t0 < TAP_MS && !ask.words;
     if (tap) ask.owner = "snap"; // nobody answers a tap: "heard" and Gemini's reply are ignored
     try {
       ask.rec?.[tap ? "abort" : "stop"]();
     } catch {}
-    (await m.close)?.();
+    await (await m.close)?.(); // the microphone keeps sending about 250 ms after release
     ask.t0 = performance.now();
     askEnd();
     if (tap) dropAnswer(ask.id);
     void chime();
     if (!words) return;
+    // The local grammar ("next", "next next", "again", "where am i") acts at release with no model.
+    const local = runLocal(words);
+    if (local) {
+      time(ask, `local "${words}" -> ${local.name}`);
+      setLine(`Heard "${words}" · ${local.name} · local grammar`);
+      return toSnap(ask, "local grammar");
+    }
     time(ask, `browser transcript "${words}"`);
     ask.early = preDecide(words).then(
       (d) => {

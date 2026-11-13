@@ -8,7 +8,7 @@ const MODEL = "subq-snap-1.2";
 export const ACTION_MIN = 0.6; // action confidence needed to act
 export const TARGET_MIN = 0.6; // target confidence needed for goto and tour
 
-export type Action = "next" | "prev" | "goto" | "read" | "stop" | "tour" | "search" | "open" | "refresh" | "question" | "display" | "none";
+export type Action = "next" | "prev" | "nextFigure" | "prevFigure" | "nextHeading" | "prevHeading" | "goto" | "read" | "stop" | "tour" | "search" | "open" | "refresh" | "question" | "display" | "none";
 export interface Item {
   id: string;
   label: string;
@@ -26,8 +26,12 @@ export interface Decision {
 }
 
 const ACTIONS: Record<Action, string> = {
-  next: "move to the next item on the page",
-  prev: "move back to the previous item on the page",
+  next: "move to the next item on the page (\"the one after that\", \"next\")",
+  prev: "move back to the previous item on the page (\"the one before\", \"back\")",
+  nextFigure: "move to the next figure, image or chart",
+  prevFigure: "move back to the previous figure, image or chart",
+  nextHeading: "skip to the next heading or section (\"skip this part\", \"next section\")",
+  prevHeading: "go back to the previous heading or section",
   goto: "jump to a named section or figure of this page",
   read: "read the current item aloud, or read it again",
   stop: "be quiet, stop talking",
@@ -93,23 +97,25 @@ const conf = (a: Choice) => a.confidence ?? a.probabilities?.[a.choice] ?? 0;
 /** Opens the TLS connection to SubQ ahead of the first request; Node's fetch keeps it alive in its pool. */
 export const warm = () => fetch(URL, { method: "HEAD", signal: AbortSignal.timeout(4000) }).catch(() => {});
 
-export async function decide(input: { utterance: string; items: Item[]; inTour?: boolean }): Promise<Decision> {
+export async function decide(input: { utterance: string; items: Item[]; inTour?: boolean; state?: Record<string, string> }): Promise<Decision> {
   const t0 = Date.now();
   const items = input.items.slice(0, 120).map((i) => ({ id: i.id, label: i.label.slice(0, 120) }));
   const body = {
     model: MODEL,
-    state: { utterance: input.utterance, in_tour: input.inTour ?? false },
+    state: { ...input.state, utterance: input.utterance, in_tour: input.inTour ?? false },
     questions: {
       action: {
         type: "choice",
         instructions:
-          "A blind student is using a voice reader on a study page. What does the utterance ask the reader to do? Choose none if it is not addressed to the reader.",
+          "A blind student is using a voice reader on a study page. The state says where the reader's cursor is now (mode, current item, position) and the last commands. " +
+          "Short requests depend on it: \"the one after that\" is next; \"skip this part\" is nextHeading; \"the next figure\" is nextFigure; \"go back to the methods\" is goto; \"the figure\" or \"tour it\" on a figure is tour. " +
+          "A question about the content (\"what is this\", \"why\") is question. What does the utterance ask the reader to do? Choose none if it is not addressed to the reader.",
         criteria: ACTIONS,
       },
       target: {
         type: "choice",
         instructions:
-          "Which listed section, figure or search result does the utterance refer to? \"The second one\" means Result 2. Choose none if it names none of them.",
+          "Which listed section, figure or search result does the utterance refer to? \"The second one\" means Result 2. \"This\", \"it\" or \"this one\" means the current item in the state. Choose none if it names none of them.",
         criteria: { ...Object.fromEntries(items.map((i) => [i.id, i.label])), none: "no listed item is named" },
       },
       setting: {

@@ -8,7 +8,7 @@ import Nodes from "@/components/twin/Nodes";
 import Results, { type Result } from "@/components/twin/Results";
 import { setCommandContext, submitUtterance } from "@/lib/client/command";
 import { findNode, prefetchClip, said, speaker, startWaitTone } from "@/lib/client/reader";
-import { pageContext, setContext } from "@/lib/client/voice";
+import { pageContext, setContext, stop as stopVoice } from "@/lib/client/voice";
 import type { Tour, Twin as TwinData, TwinNode } from "@/lib/types";
 
 const LIVE_LINE = "Fetching the page through Bright Data.";
@@ -59,11 +59,17 @@ export default function Twin() {
   const [cursorTo, setCursorTo] = useState<{ id: string; lines: string[]; then?: () => void } | null>(null);
   const seq = useRef(0); // the newest load or search; an older one never swaps its result in
   const cursorHeading = useRef<string | null>(null);
+  const cursorId = useRef<string | null>(null);
+  const lastContext = useRef("");
 
   // Warms the voice so these fixed lines start at once.
   useEffect(() => [LIVE_LINE, FULL_LINE, VIDEO_LINE, NEXT_STEP, "Use the arrow keys, or say open the first one.", "Use the arrow keys, or hold Space and ask."].forEach(prefetchClip), []);
   useEffect(() => {
-    const onCursor = (e: Event) => void (cursorHeading.current = (e as CustomEvent<{ heading: string }>).detail?.heading ?? null);
+    const onCursor = (e: Event) => {
+      const d = (e as CustomEvent<{ id: string; heading: string }>).detail;
+      cursorHeading.current = d?.heading ?? null;
+      cursorId.current = d?.id ?? null;
+    };
     window.addEventListener("arc:cursor", onCursor);
     return () => window.removeEventListener("arc:cursor", onCursor);
   }, []);
@@ -79,7 +85,6 @@ export default function Twin() {
   const load = useCallback(async (target: string, live: boolean, hint?: Hint) => {
     const mine = ++seq.current;
     speaker.cancel();
-    speaker.resetPatience();
     setFound(null);
     setTourId(null);
     cursorHeading.current = null;
@@ -292,21 +297,32 @@ export default function Twin() {
     });
   }, [load, loadDoc]);
 
-  const handlers = useRef({ search, open, load, found, twin });
+  const handlers = useRef({ search, open, load, found, twin, tourId, leaveTour });
   useEffect(() => {
-    handlers.current = { search, open, load, found, twin };
+    handlers.current = { search, open, load, found, twin, tourId, leaveTour };
   });
   useEffect(() => {
     const onCommand = (e: Event) => {
-      const { name, args } = (e as CustomEvent<{ name: string; args?: { query?: string; url?: string; id?: string } }>).detail ?? {};
+      const { name, args } = (e as CustomEvent<{ name: string; args?: { query?: string; url?: string; id?: string; at?: number } }>).detail ?? {};
       const h = handlers.current;
       if (name === "search" && args?.query) void h.search(args.query);
       if (name === "load" && args?.url) void h.load(args.url, false);
       if (name === "refresh" && h.twin) void h.load(h.twin.source.url, true);
       if (name === "open") {
         // A result id from Snap ("open the second one"), or a full address from the voice model.
-        const url = args?.url ?? h.found?.results[Number(args?.id?.slice(1)) - 1]?.url;
+        // at: the result under the cursor, or a counted one ("open the second one"), from the local grammar.
+        const url = args?.url ?? h.found?.results[typeof args?.at === "number" ? args.at : Number(args?.id?.slice(1)) - 1]?.url;
         if (url) h.open(url);
+      }
+      if (name === "leave") {
+        const node = h.twin?.nodes.find((n) => n.id === h.tourId);
+        if (node) {
+          stopVoice();
+          h.leaveTour(node);
+        } else if (h.found && h.twin) {
+          setFound(null);
+          void speaker.say([`Back to ${h.twin.source.title}.`]);
+        } else void speaker.say(["There is nothing to leave."]);
       }
     };
     window.addEventListener("arc:command", onCommand);
@@ -331,13 +347,50 @@ export default function Twin() {
           label: found ? `Result ${i + 1}: ${n.heading} (${host(found.results[i]?.url)})` : n.kind === "figure" ? `${n.heading}: ${n.text.slice(0, 80)}` : n.heading,
         })),
         tourId !== null,
+        { mode: found ? "results" : !twin ? "landing" : twin.counts.segments ? "video" : "article", title: found ? `search results for ${found.query}` : (twin?.source.title ?? "") },
       ),
-    [items, tourId, found],
+    [items, tourId, found, twin],
   );
-  // The question session (Gemini Live) answers from this page, and from the tour when one is open.
+  // The question session (Gemini Live) answers from this page, and from the tour when one is open, plus where the
+  // student is now so "this", "that" and "why" have a referent. Sent at most every 500 ms and only when it changed:
+  // each new context reopens the question session.
   useEffect(() => {
-    if (twin) setContext(pageContext(twin, tourId));
-  }, [twin, tourId]);
+    if (!twin && !found) return;
+    const page = found
+      ? `Search results for ${found.query}:\n${found.results.map((r, i) => `Result ${i + 1}: ${r.title}. ${r.snippet.slice(0, 200)}`).join("\n")}`.slice(0, 6000)
+      : pageContext(twin!, tourId);
+    let sent = "";
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const send = () => {
+      const i = items.findIndex((n) => n.id === cursorId.current);
+      const n = items[i];
+      const stop = tourId ? document.querySelector("[data-tour] p")?.textContent?.trim() : "";
+      const where = [
+        "WHERE THE STUDENT IS NOW (\"this\", \"that\", \"here\" and \"it\" mean this):",
+        `Mode: ${tourId ? "figure tour" : found ? "search results" : twin?.counts.segments ? "video outline" : "article"}.`,
+        n ? `Current item, ${i + 1} of ${items.length}: ${n.heading}${n.kind === "figure" ? " (figure)" : ""}. ${n.text.slice(0, 600)}` : "No item yet: the student is at the top.",
+        n && items[i - 1] ? `Previous item: ${items[i - 1].heading}.` : "",
+        n && items[i + 1] ? `Next item: ${items[i + 1].heading}.` : "",
+        stop ? `Current tour stop: ${stop.slice(0, 400)}` : "",
+      ].filter(Boolean).join("\n");
+      const text = `${page}\n\n${where}`;
+      if (text !== sent && text !== lastContext.current) setContext((sent = lastContext.current = text));
+    };
+    const soon = () => {
+      clearTimeout(timer);
+      timer = setTimeout(send, 500);
+    };
+    soon();
+    window.addEventListener("arc:cursor", soon);
+    window.addEventListener("arc:command", soon);
+    window.addEventListener("keyup", soon); // tour keys move stops without a command event
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("arc:cursor", soon);
+      window.removeEventListener("arc:command", soon);
+      window.removeEventListener("keyup", soon);
+    };
+  }, [twin, tourId, found, items]);
 
   return (
     <>
@@ -348,7 +401,7 @@ export default function Twin() {
 
       <div id="content" tabIndex={-1}>
         {found ? (
-          <Results query={found.query} results={found.results} ids={items.map((i) => i.id)} onOpen={open} onBack={() => setFound(null)} />
+          <Results query={found.query} results={found.results} ids={items.map((i) => i.id)} onOpen={open} onBack={twin ? () => setFound(null) : undefined} />
         ) : twin ? (
           <article aria-labelledby="twin-title">
             <h1 id="twin-title">{twin.source.title}</h1>

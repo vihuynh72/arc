@@ -10,7 +10,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const b = (await req.json().catch(() => null)) as { utterance?: unknown; items?: unknown; inTour?: unknown } | null;
+  const b = (await req.json().catch(() => null)) as { utterance?: unknown; items?: unknown; inTour?: unknown; state?: unknown } | null;
   if (typeof b?.utterance !== "string" || !b.utterance.trim()) {
     return Response.json({ error: "Missing utterance." }, { status: 400 });
   }
@@ -18,7 +18,9 @@ export async function POST(req: Request) {
     (i): i is Item => typeof i?.id === "string" && typeof i?.label === "string",
   );
   try {
-    return Response.json(await decide({ utterance: b.utterance, items, inTour: b.inTour === true }));
+    // state: short strings from lib/client/command.ts (mode, current item, position, last commands); anything else is dropped.
+    const state = b.state && typeof b.state === "object" ? Object.fromEntries(Object.entries(b.state).filter(([, v]) => typeof v === "string").slice(0, 8).map(([k, v]) => [k.slice(0, 40), (v as string).slice(0, 300)])) : {};
+    return Response.json(await decide({ utterance: b.utterance, items, inTour: b.inTour === true, state }));
   } catch (e) {
     console.error("decide failed:", e instanceof Error ? e.message : "unknown");
     return Response.json({ error: "The decision service did not answer." }, { status: 502 });
