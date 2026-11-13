@@ -3,6 +3,7 @@ import { Atkinson_Hyperlegible, Instrument_Serif, Inter } from "next/font/google
 import { BOOT } from "@/lib/client/display";
 import "./globals.css";
 import "./profiles.css";
+import "./landing.css";
 
 const serif = Instrument_Serif({ weight: "400", style: ["normal", "italic"], subsets: ["latin"], variable: "--font-serif", display: "swap" });
 const sans = Inter({ weight: ["400", "500", "600"], subsets: ["latin"], variable: "--font-sans", display: "swap" });
