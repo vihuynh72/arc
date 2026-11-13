@@ -1,6 +1,7 @@
 // Browser <-> Gemini Live relay for /ws/voice. Protocol (JSON text frames):
 // in:  {type:"start", context} | {type:"say", id, text} | {type:"cancel", id?}
 //      {type:"ask_start", id} | {type:"ask_audio", data: b64 PCM16 16 kHz} | {type:"ask_end"}
+//      {type:"ask_text", id, text} (a typed question: same session, instruction, context and tools as a spoken one)
 // out: {type:"audio", id, data: b64 PCM16 24 kHz} | {type:"done", id, transcript, match, cached?, heard?}
 //      {type:"heard", id, text} (once per ask, as soon as the student's words are final, before any answer)
 //      {type:"command", id, name, args} | {type:"error", id?, message, fallback}
@@ -364,6 +365,16 @@ export function attachVoice(client: WebSocket) {
         askText = heard = "";
         heardSent = false;
         askSend({ realtimeInput: { activityStart: {} } });
+        break;
+      case "ask_text":
+        if (typeof m.id === "string" && typeof m.text === "string" && m.text.trim()) {
+          askId = m.id;
+          askMuted = false;
+          askText = "";
+          heard = m.text.trim();
+          heardSent = true; // the browser already has these words
+          askSend({ clientContent: { turns: [{ role: "user", parts: [{ text: heard }] }], turnComplete: true } });
+        } else out({ type: "error", id: m.id as string, message: "ask_text needs id and text", fallback: false });
         break;
       case "ask_audio":
         if (typeof m.data === "string") askSend({ realtimeInput: { audio: { data: m.data, mimeType: "audio/pcm;rate=16000" } } });

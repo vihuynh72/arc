@@ -1,6 +1,7 @@
 // Relay check against the running server. `npx tsx scripts/try-voice.ts` says tour stop 1.
 // `npx tsx scripts/try-voice.ts say <n>` says stop n.
 // `npx tsx scripts/try-voice.ts ask <file.pcm>` sends 16 kHz PCM16 as push-to-talk.
+// `npx tsx scripts/try-voice.ts asktext "<question>"` sends a typed question (ask_text) and prints audio timing, transcript and any command.
 import { readFileSync } from "node:fs";
 import WebSocket from "ws";
 import { stopLine } from "../lib/cues";
@@ -25,7 +26,8 @@ const timeout = setTimeout(() => {
 
 ws.on("open", () => {
   ws.send(JSON.stringify({ type: "start", context }));
-  if (mode === "ask") {
+  if (mode === "asktext") ws.send(JSON.stringify({ type: "ask_text", id: "t1", text: file }));
+  else if (mode === "ask") {
     const pcm = readFileSync(file);
     ws.send(JSON.stringify({ type: "ask_start", id: "q1" }));
     for (let i = 0; i < pcm.length; i += 3200) ws.send(JSON.stringify({ type: "ask_audio", data: pcm.subarray(i, i + 3200).toString("base64") }));
@@ -46,12 +48,12 @@ ws.on("message", (d) => {
   if (m.type === "command" || m.type === "done") {
     const secs = bytes / 48000; // 24 kHz * 2 bytes
     console.log(`first audio ${first} ms, last audio ${last} ms, audio ${secs.toFixed(2)} s, total ${Date.now() - t0} ms`);
-    if (mode !== "ask") {
+    if (mode !== "ask" && mode !== "asktext") {
       const ok = secs > 1 && norm(m.transcript) === norm(text);
       console.log(ok ? `PASS (cached: ${m.cached})` : "FAIL");
       process.exit(ok ? 0 : 1);
     }
-    if (m.type === "done") {
+    if (m.type === "done" || (mode === "asktext" && m.type === "command")) {
       clearTimeout(timeout);
       ws.close();
     }

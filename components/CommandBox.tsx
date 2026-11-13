@@ -2,7 +2,7 @@
 // The one box, in the page header, mounted by app/page.tsx. A link loads (a video link becomes an outline);
 // anything else goes through lib/client/command.ts, the same path the voice uses.
 import { useEffect, useRef, useState } from "react";
-import { describe, submitUtterance } from "@/lib/client/command";
+import { describe, submitUtterance, viaGemini } from "@/lib/client/command";
 import { speaker } from "@/lib/client/reader";
 
 // After a handled submit, focus leaves the box for the page (silent: #content has no name to read), so Space and
@@ -17,6 +17,7 @@ const LINK = /^(https?:\/\/)?[\w-]+(\.[\w-]+)+(:\d+)?([/?#]\S*)?$/i;
 export default function CommandBox() {
   const [text, setText] = useState("");
   const [line, setLine] = useState("");
+  const [answer, setAnswer] = useState(""); // Gemini's answer to a typed question, as static text (the voice speaks it)
   const [busy, setBusy] = useState(false);
   const box = useRef<HTMLInputElement>(null);
 
@@ -53,17 +54,14 @@ export default function CommandBox() {
           return;
         }
         setBusy(true);
+        setAnswer("");
         try {
-          const d = await submitUtterance(t);
+          const d = await submitUtterance(t, { onAnswer: setAnswer });
           setLine(describe(d));
           if (d.act) {
             setText("");
             leave();
-          } else if (d.action === "question") {
-            // shortcut: typed questions have no text path to Gemini Live yet; point to the voice instead of staying silent.
-            leave(); // out of the box, so Space works at once
-            void speaker.say(["Hold Space and ask that out loud."]);
-          }
+          } else if (viaGemini(d)) leave(); // the answer is spoken and shown here; out of the box, so Space works at once
         } catch {
           setLine("That did not work. Try again.");
           void speaker.say(["That did not work. Try again, or hold Space and ask."]);
@@ -78,6 +76,7 @@ export default function CommandBox() {
         Press Enter. Outside this box, hold Space and speak. Press slash to come back here.
       </p>
       <p className="decision">{line}</p>
+      <p className="decision">{answer}</p>
     </form>
   );
 }

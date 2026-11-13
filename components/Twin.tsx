@@ -44,6 +44,7 @@ export default function Twin() {
   // live: skip the saved copy. Otherwise the saved copy if there is one, else the server fetches live itself.
   const load = useCallback(async (target: string, live: boolean) => {
     speaker.cancel();
+    speaker.resetPatience();
     setFound(null);
     setTourId(null);
     const video = VIDEO.test(target);

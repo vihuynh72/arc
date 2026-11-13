@@ -14,6 +14,7 @@ interface Entry {
   chunks: Int16Array[];
   done: boolean;
   failed: boolean;
+  transcript?: string; // what Gemini said, once done
   wake: Set<() => void>;
   on?: AskHooks;
 }
@@ -64,6 +65,7 @@ function socket(): WebSocket {
     if (m.type === "audio") e.chunks.push(b64ToPcm(m.data));
     if (m.type === "done") {
       e.done = true;
+      e.transcript = m.transcript;
       if (!m.match) console.warn("[voice] spoken text differed from requested text", m.transcript);
     }
     if (m.type === "error") {
@@ -290,4 +292,36 @@ export const dropAnswer = (id: string) => send({ type: "cancel", id });
 export function playAnswer(id: string): Promise<void> {
   const e = byId.get(id);
   return e ? play(e) : Promise.resolve();
+}
+
+/** Sends a typed question to the same question session a spoken one uses. Its command (if any) goes to onCommand; the spoken answer plays through playAnswer(id). */
+export function askText(text: string, onCommand: AskHooks["command"]): string {
+  stop();
+  const e = entry();
+  e.on = { heard() {}, first() {}, command: onCommand };
+  send({ type: "ask_text", id: e.id, text });
+  return e.id;
+}
+
+/** Resolves with the answer's transcript when the reply is complete, or null if the relay failed or stayed silent for `ms`. */
+export function answerText(id: string, ms = 15000): Promise<string | null> {
+  const e = byId.get(id);
+  if (!e) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const finish = (v: string | null) => {
+      clearTimeout(timer);
+      e.wake.delete(check);
+      resolve(v);
+    };
+    const check = () => {
+      if (e.failed) finish(null);
+      else if (e.done) finish(e.transcript ?? "");
+    };
+    const timer = setTimeout(() => {
+      dropAnswer(id); // a late reply must not play over what comes next
+      finish(null);
+    }, ms);
+    e.wake.add(check);
+    check();
+  });
 }

@@ -1,5 +1,6 @@
 // Browser-side reading voice for Reader.tsx and Twin.tsx. Speech is Kokoro audio from /api/speak, never speechSynthesis.
 import type { TwinNode } from "@/lib/types";
+import { say as sayLive, stop as stopLive } from "./voice";
 
 export const VOICE = "af_bella";
 const clipUrl = (text: string) => `/api/speak?text=${encodeURIComponent(text)}&voice=${VOICE}`;
@@ -90,6 +91,12 @@ async function fetchClip(text: string, signal: AbortSignal): Promise<string | nu
   return null;
 }
 
+// A Kokoro clip later than this is spoken by the Gemini voice instead (first audio in about 1.3 s). After one miss the
+// rest of the page waits less. The hosted copy (2 cores) needs about 10 s per new sentence; a laptop answers in under 1 s.
+const PATIENCE = 4000; // laptop Kokoro can take ~2.6 s when three new clips queue; only a slow host should fall back
+const PATIENCE_AFTER_MISS = 1200;
+const SLOW = Symbol("slow");
+
 /** Ask the server to make (and cache) a clip ahead of time. */
 export const prefetchClip = (text: string) => void fetch(clipUrl(text)).catch(() => {});
 
@@ -99,6 +106,13 @@ class Speaker {
   private ctl: AbortController | null = null;
   private audio: HTMLAudioElement | null = null;
   private release: (() => void) | null = null;
+  private patience = PATIENCE;
+  private live = false; // the Gemini voice is speaking a chunk
+
+  /** A new page starts with the full patience again. */
+  resetPatience() {
+    this.patience = PATIENCE;
+  }
 
   /** Speaks the chunks in order, resolves when done or cancelled. The next two are fetched while one plays. */
   async say(chunks: string[]): Promise<void> {
@@ -111,9 +125,16 @@ class Speaker {
       get(i);
       get(i + 1);
       get(i + 2);
-      const url = await clips[i];
+      const url = await Promise.race([clips[i], new Promise<typeof SLOW>((r) => setTimeout(r, this.patience, SLOW))]);
       if (mine !== this.gen) break;
-      if (url) await this.play(url);
+      if (url === SLOW) {
+        // This chunk goes to the Gemini voice and the Kokoro request keeps running, so the clip is cached for next time.
+        console.info("[arc-voice] kokoro slow, used live voice");
+        this.patience = PATIENCE_AFTER_MISS;
+        this.live = true;
+        await sayLive(chunks[i]);
+        this.live = false;
+      } else if (url) await this.play(url);
     }
     for (const c of clips) void c.then((u) => u && URL.revokeObjectURL(u));
   }
@@ -129,6 +150,10 @@ class Speaker {
     this.ctl?.abort();
     this.audio?.pause();
     this.release?.();
+    if (this.live) {
+      this.live = false;
+      stopLive();
+    }
   }
 
   private play(url: string) {
