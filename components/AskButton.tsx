@@ -13,7 +13,7 @@ import { actNow, HEARD_NOTHING, heardUnsure, TOO_QUIET } from "@/lib/client/hear
 import { prefetchClip, speaker } from "@/lib/client/reader";
 import { answerText, askAudio, askEnd, askResult, askStart, audioState, chime, dropAnswer, playAnswer, say, stop, type AskHooks } from "@/lib/client/voice";
 
-const GREETING = "Arc. Hold Space and tell me what to study, or paste a link.";
+const GREETING = "Arc. Tell me how you see, or say what you want to study.";
 const STABLE_MS = 350; // interim words unchanged this long are pre-asked to Snap
 const TAP_MS = 200; // a Space tap shorter than this is not a question: nothing is sent to Gemini
 

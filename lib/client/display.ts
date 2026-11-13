@@ -16,6 +16,7 @@ export interface Display {
   font?: "legible";
   focus?: "on";
   motion?: "reduce";
+  voiceFirst?: true; // "I am blind": everything shown is also said, reading runs on, moves say where they land
 }
 
 export const PROFILES: Record<Profile, { label: string; set: Display }> = {
@@ -47,7 +48,13 @@ export const DISPLAY_COMMANDS: Record<string, string> = {
   "light-sensitive": "the light sensitive profile, I am sensitive to light",
   dyslexia: "the dyslexia friendly profile, I have dyslexia",
   "narrow-field": "the narrow field of view profile, I have tunnel vision",
+  "voice-first": "I am blind, I cannot see the screen, voice first, blind mode",
+  "voice-first-off": "turn off voice first",
 };
+
+export const VOICE_FIRST_ON = "Okay. I will tell you everything out loud. Hold Space to talk, arrow keys to move.";
+/** Voice first is on (persisted with the display settings). */
+export const voiceFirst = () => typeof window !== "undefined" && load().voiceFirst === true;
 
 const KEY = "arc-display";
 
@@ -86,7 +93,13 @@ export function save(s: Display) {
 
 /** Pure: the new choice and the one short sentence that confirms it, for one display command. */
 export function applyCommand(s: Display, cmd: string): [Display, string] | null {
-  if (cmd in PROFILES) return [{ ...PROFILES[cmd as Profile].set, profile: cmd as Profile }, `${PROFILES[cmd as Profile].label}.`];
+  if (cmd === "voice-first") return [{ ...s, voiceFirst: true }, VOICE_FIRST_ON];
+  if (cmd === "voice-first-off") {
+    const rest = { ...s };
+    delete rest.voiceFirst;
+    return [rest, "Voice first off."];
+  }
+  if (cmd in PROFILES) return [{ ...PROFILES[cmd as Profile].set, profile: cmd as Profile, ...(s.voiceFirst ? { voiceFirst: true as const } : {}) }, `${PROFILES[cmd as Profile].label}.`];
   if (cmd === "reset") return [{}, "Display reset."];
   if (cmd in THEMES) return [{ ...s, theme: cmd as Theme }, `${THEMES[cmd as Theme]}.`];
   const at = SIZES.indexOf(s.text ?? "100");

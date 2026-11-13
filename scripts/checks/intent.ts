@@ -13,6 +13,11 @@ const r = (u: string, c: Ctx) => resolveLocal(u, c);
 const name = (u: string, c: Ctx) => r(u, c)?.name ?? null;
 
 export default function check() {
+  // "I am blind" turns on voice first in every mode, at once; "reset display" turns it off with the rest
+  for (const c of [land, base, tour, res]) assert.deepEqual(r("I'm blind.", c), { name: "display", args: { setting: "voice-first" } });
+  assert.equal(r("i can't see the screen", land)?.args?.setting, "voice-first");
+  assert.equal(r("turn off voice first", base)?.args?.setting, "voice-first-off");
+  assert.equal(r("reset display", base)?.args?.setting, "reset");
   // normalising
   assert.equal(normalise("Um, please... NEXT!"), "next");
   assert.equal(normalise("hey arc, can you stop please"), "stop");

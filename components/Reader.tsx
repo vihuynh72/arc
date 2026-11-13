@@ -2,6 +2,7 @@
 // The reading cursor, mounted by components/Twin.tsx. Arrow keys move it by node like VoiceOver; a visible ring travels to each node.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { TwinNode } from "@/lib/types";
+import { voiceFirst } from "@/lib/client/display";
 import { findNode, nodeSpeech, said, speaker } from "@/lib/client/reader";
 
 type Props = {
@@ -19,6 +20,7 @@ export default function Reader({ items, paused, onTour }: Props) {
   const [index, setIndex] = useState(-1);
   const [rate, setRate] = useState(1);
   const ring = useRef<HTMLDivElement>(null);
+  const readOnRef = useRef<(from?: number) => Promise<void>>(async () => {}); // moveTo is defined before readOn
   // progUntil: Arc's own scroll is under way, ignore scroll events. settled: the index last announced. raf/timer: the scroll follower.
   // hist: places before each jump, for "go back". reading: bumped by any key or command, ends "keep reading".
   const live = useRef({ items, index: -1, paused, onTour, progUntil: 0, settled: -1, raf: 0, timer: 0, hist: [] as number[], reading: 0 });
@@ -63,7 +65,15 @@ export default function Reader({ items, paused, onTour }: Props) {
       place(true);
       const figureIndex = node.kind === "figure" ? list.slice(0, i + 1).filter((n) => n.kind === "figure").length : undefined;
       window.dispatchEvent(new CustomEvent("arc:cursor", { detail: { id: node.id, kind: node.kind, heading: node.heading, figureIndex, back: live.current.hist.length > 0 } }));
-      if (opts.read !== false) void speaker.say(nodeSpeech(node));
+      if (opts.read === false) return;
+      if (!voiceFirst()) return void speaker.say(nodeSpeech(node));
+      // Voice first: where it landed, the item, the tour offer on a figure; then reading runs on to the next items.
+      const fig = node.kind === "figure" && !!node.image;
+      const mine = live.current.reading;
+      void speaker.say([`${i + 1} of ${list.length}.`, ...nodeSpeech(node), ...(fig ? ["Say tour to explore it."] : [])]).then((ok) => {
+        if (!fig && ok && mine === live.current.reading && live.current.index === i) void readOnRef.current(i + 1);
+      });
+      if (fig) window.dispatchEvent(new CustomEvent("arc:offer", { detail: { name: "tour", args: { id: node.id } } }));
     },
     [place],
   );
@@ -95,15 +105,23 @@ export default function Reader({ items, paused, onTour }: Props) {
   }, [step]);
 
   // "more": read on from the current item until anything else happens.
-  const readOn = useCallback(async () => {
+  // Stops when a reading is cancelled (any key, Escape, "stop"), when the cursor moves some other way, and in voice
+  // first at a figure (its caption, then the tour offer).
+  const readOn = useCallback(async (from?: number) => {
     const L = live.current;
     const mine = ++L.reading;
-    for (let i = Math.max(L.index, 0); i < L.items.length && mine === L.reading; i++) {
+    for (let i = from ?? Math.max(L.index, 0); i < L.items.length && mine === L.reading; i++) {
       moveTo(i, { read: false });
-      await speaker.say(nodeSpeech(L.items[i]));
-      if (L.index !== i) break; // the cursor moved some other way
+      const n = L.items[i];
+      const fig = voiceFirst() && n.kind === "figure" && !!n.image;
+      const ok = await speaker.say(fig ? [...nodeSpeech(n), "Say tour to explore it."] : nodeSpeech(n));
+      if (fig && ok) window.dispatchEvent(new CustomEvent("arc:offer", { detail: { name: "tour", args: { id: n.id } } }));
+      if (!ok || fig || L.index !== i) break;
     }
   }, [moveTo]);
+  useEffect(() => {
+    readOnRef.current = readOn;
+  }, [readOn]);
 
   const faster = useCallback((by: number) => setRate(speaker.setRate(speaker.rate + by)), []);
 

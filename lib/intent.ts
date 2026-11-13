@@ -164,10 +164,20 @@ function where(c: Ctx): string {
   return `${c.label ? `${c.label}, ` : ""}${kind} ${at} of ${c.total}${page}.`;
 }
 
+// "I am blind" and its kin turn on voice first (lib/client/display.ts) in every mode, at once.
+const DISPLAY_PHRASES: Record<string, string> = {
+  "i am blind": "voice-first", "i'm blind": "voice-first", "im blind": "voice-first", "i cannot see": "voice-first", "i can't see": "voice-first",
+  "i cant see": "voice-first", "i can't see the screen": "voice-first", "i cannot see the screen": "voice-first", "i cant see the screen": "voice-first",
+  "blind mode": "voice-first", "voice first": "voice-first", "turn on voice first": "voice-first",
+  "turn off voice first": "voice-first-off", "voice first off": "voice-first-off",
+  "reset display": "reset", "reset the display": "reset",
+};
+
 /** The whole utterance as a command for this context, or null to let Snap and Gemini decide. */
 export function resolveLocal(utterance: string, c: Ctx): Resolved | null {
   const s = normalise(utterance);
   if (!s || s.split(" ").length > MAX_WORDS) return null;
+  if (DISPLAY_PHRASES[s]) return { name: "display", args: { setting: DISPLAY_PHRASES[s] } };
   const go = s.replace(/^go (?:to )?(?:the )?(?=\S)/, ""); // "go next", "go to the top"; "go back" and "go on" are phrases of their own
   const onFigure = c.onKind === "figure";
   const exact = LOOKUP.get(s) ?? (go !== s && !LOOKUP.has(s) ? LOOKUP.get(go) : undefined);

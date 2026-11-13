@@ -109,6 +109,8 @@ export const prefetchClip = (text: string) => void (!kokoro.off && fetch(clipUrl
 
 class Speaker {
   rate = 1;
+  busy = false; // a say() is under way
+  recent: { text: string; at: number }[] = []; // what was said lately, so a status line is not said twice (voice first)
   private gen = 0;
   private ctl: AbortController | null = null;
   private audio: HTMLAudioElement | null = null;
@@ -120,6 +122,9 @@ class Speaker {
   async say(chunks: string[]): Promise<boolean> {
     this.cancel();
     const mine = this.gen;
+    this.busy = true;
+    const now = Date.now();
+    this.recent = [...this.recent.filter((r) => now - r.at < 10_000), { text: chunks.join(" "), at: now }];
     const ctl = (this.ctl = new AbortController());
     const clips: Promise<string | null>[] = [];
     const get = (i: number) => void (i < chunks.length && !kokoro.off && (clips[i] ??= fetchClip(chunks[i], ctl.signal)));
@@ -138,6 +143,7 @@ class Speaker {
       }
     }
     for (const c of clips) void c?.then((u) => u && URL.revokeObjectURL(u));
+    if (mine === this.gen) this.busy = false;
     return mine === this.gen;
   }
 
@@ -149,6 +155,7 @@ class Speaker {
 
   cancel() {
     this.gen++;
+    this.busy = false;
     this.ctl?.abort();
     this.audio?.pause();
     this.release?.();

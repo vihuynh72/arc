@@ -7,8 +7,9 @@ import Reader from "@/components/Reader";
 import Nodes from "@/components/twin/Nodes";
 import Results, { type Result } from "@/components/twin/Results";
 import { setCommandContext, submitUtterance } from "@/lib/client/command";
+import { voiceFirst } from "@/lib/client/display";
 import { findNode, prefetchClip, said, speaker, startWaitTone } from "@/lib/client/reader";
-import { pageContext, setContext, stop as stopVoice } from "@/lib/client/voice";
+import { pageContext, setContext, stop as stopVoice, tourContext } from "@/lib/client/voice";
 import type { Tour, Twin as TwinData, TwinNode } from "@/lib/types";
 
 const LIVE_LINE = "Fetching the page through Bright Data.";
@@ -61,6 +62,28 @@ export default function Twin() {
   const cursorHeading = useRef<string | null>(null);
   const cursorId = useRef<string | null>(null);
   const lastContext = useRef("");
+  const prioritised = useRef(new Set<string>()); // figures whose analysis was moved up the server's queue
+  const twinRef = useRef<TwinData | null>(null);
+  useEffect(() => {
+    twinRef.current = twin;
+  }, [twin]);
+
+  // Voice first: a status line nobody said is said once, in its own words, when the voice is free (never over another line).
+  useEffect(() => {
+    if (!voiceFirst()) return;
+    const words = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const mine = words(status);
+    const t0 = Date.now();
+    let timer: ReturnType<typeof setTimeout>;
+    const check = () => {
+      if (document.querySelector("[data-tour]")) return; // the tour has its own voice: never two at once
+      if (speaker.busy) return void (Date.now() - t0 < 8000 && (timer = setTimeout(check, 300)));
+      if (speaker.recent.some((r) => Date.now() - r.at < 10_000 && (words(r.text).includes(mine) || mine.includes(words(r.text))))) return;
+      void speaker.say([status]);
+    };
+    timer = setTimeout(check, 600);
+    return () => clearTimeout(timer);
+  }, [status]);
 
   // Warms the voice so these fixed lines start at once.
   useEffect(() => [LIVE_LINE, FULL_LINE, VIDEO_LINE, NEXT_STEP, "Use the arrow keys, or say open the first one.", "Use the arrow keys, or hold Space and ask."].forEach(prefetchClip), []);
@@ -69,6 +92,12 @@ export default function Twin() {
       const d = (e as CustomEvent<{ id: string; heading: string }>).detail;
       cursorHeading.current = d?.heading ?? null;
       cursorId.current = d?.id ?? null;
+      // The cursor landed on a figure (arrow, scroll, command): its analysis jumps the queue, once per figure.
+      const url = twinRef.current?.nodes.find((n) => n.id === d?.id)?.image?.url;
+      if (url && !prioritised.current.has(url)) {
+        prioritised.current.add(url);
+        void fetch("/api/tour/prioritise", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ image: url }) }).catch(() => {});
+      }
     };
     window.addEventListener("arc:cursor", onCursor);
     return () => window.removeEventListener("arc:cursor", onCursor);
@@ -183,6 +212,7 @@ export default function Twin() {
     };
     if (!node.tour) {
       setStatus(`Looking for a tour of ${node.heading}.`);
+      void speaker.say(["Looking at this figure."]);
       const res = await fetch(`/api/tour?image=${encodeURIComponent(node.image.url)}`).catch(() => null);
       if (!res || res.status === 404) return refuse("No tour for this figure yet.");
       if (!res.ok) return refuse("The tour could not be loaded.");
@@ -280,7 +310,14 @@ export default function Twin() {
       const t = res.ok ? ((await res.json()) as TwinData) : null;
       if (mine !== seq.current) return;
       if (!t?.nodes?.length) throw new Error(`ingest ${res.status}`);
-      setTwin(t);
+      setTwin(t); // kept on screen if the other way fails too (load() leaves the twin alone on an error)
+      if (t.counts.sections < 2 && /^https?:\/\//i.test(t.source.url)) {
+        // The tab's HTML gave a useless parse (one section): read the page the normal way (MDPI through Bright Data).
+        setStatus("Reading this page another way.");
+        await speaker.say(["Reading this page another way."]);
+        if (mine === seq.current) await load(t.source.url, false);
+        return;
+      }
       setStatus(`${VIA[t.source.via] ?? "Read from your open tab"}.`);
       void speaker.say([`Read from your tab. ${t.source.title}.`, `${counted(t).replace(", ", " and ")}.`, "Use the arrow keys, or hold Space and ask."]);
       said(`Loaded ${t.source.title}.`);
@@ -292,7 +329,7 @@ export default function Twin() {
       void speaker.say([line]);
       said(line);
     }
-  }, []);
+  }, [load]);
 
   // Deep links, so nobody has to paste: /?url=<link>, /?q=<request>, /?doc=<id> (the extension), /?notice=restricted.
   // Read once per page (Strict Mode runs effects twice). ?doc and ?url stay in the address: they name the page on
@@ -376,14 +413,14 @@ export default function Twin() {
       ),
     [items, tourId, found, twin],
   );
-  // The question session (Gemini Live) answers from this page, and from the tour when one is open, plus where the
-  // student is now so "this", "that" and "why" have a referent. Sent at most every 500 ms and only when it changed:
-  // each new context reopens the question session.
+  // The question session (Gemini Live) answers from this page's outline (stable: a new one reopens the session), plus
+  // where the student is now and the open tour (volatile: sent with each question, never a reopen), so "this", "that"
+  // and "why" have a referent. Sent at most every 500 ms and only when it changed.
   useEffect(() => {
     if (!twin && !found) return;
     const page = found
       ? `Search results for ${found.query}:\n${found.results.map((r, i) => `Result ${i + 1}: ${r.title}. ${r.snippet.slice(0, 200)}`).join("\n")}`.slice(0, 6000)
-      : pageContext(twin!, tourId);
+      : pageContext(twin!);
     let sent = "";
     let timer: ReturnType<typeof setTimeout> | undefined;
     const send = () => {
@@ -396,10 +433,14 @@ export default function Twin() {
         n ? `Current item, ${i + 1} of ${items.length}: ${n.heading}${n.kind === "figure" ? " (figure)" : ""}. ${n.text.slice(0, 600)}` : "No item yet: the student is at the top.",
         n && items[i - 1] ? `Previous item: ${items[i - 1].heading}.` : "",
         n && items[i + 1] ? `Next item: ${items[i + 1].heading}.` : "",
+        twin && !found ? tourContext(twin, tourId) : "",
         stop ? `Current tour stop: ${stop.slice(0, 400)}` : "",
       ].filter(Boolean).join("\n");
       const text = `${page}\n\n${where}`;
-      if (text !== sent && text !== lastContext.current) setContext((sent = lastContext.current = text));
+      if (text !== sent && text !== lastContext.current) {
+        sent = lastContext.current = text;
+        setContext(page, where);
+      }
     };
     const soon = () => {
       clearTimeout(timer);

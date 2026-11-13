@@ -52,6 +52,7 @@ export default function Landing() {
       <section className="landing-block" aria-labelledby="try-title">
         <h2 id="try-title">Try <em>saying</em></h2>
         <ul className="landing-try">
+          <li>I am blind</li>
           <li>Find a paper about knee rehabilitation</li>
           <li>Open the first one</li>
           <li>Take me to the results</li>

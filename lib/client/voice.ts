@@ -34,6 +34,7 @@ export interface AskHooks {
 let ws: WebSocket | undefined;
 let outbox: string[] = [];
 let context = "";
+let where = "";
 let seq = 0;
 const byKey = new Map<string, Entry>();
 const byId = new Map<string, Entry>();
@@ -51,7 +52,7 @@ function socket(): WebSocket {
   if (ws && ws.readyState <= WebSocket.OPEN) return ws;
   const s = (ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/voice`));
   s.onopen = () => {
-    s.send(JSON.stringify({ type: "start", context }));
+    s.send(JSON.stringify({ type: "start", context, where }));
     for (const m of outbox) s.send(m);
     outbox = [];
   };
@@ -118,19 +119,28 @@ function request(text: string): Entry {
 }
 
 /** Compact page text for the question session: title, headings with first sentences, captions, and an open tour. */
-export function pageContext(twin: Twin, tourId: string | null): string {
+export function pageContext(twin: Twin, tourId: string | null = null): string {
   const first = (t: string) => t.split(/(?<=[.!?])\s+/)[0]?.slice(0, 240) ?? "";
   const lines = [`Title: ${twin.source.title}`];
   for (const n of twin.nodes) lines.push(n.kind === "figure" ? `${n.heading} (figure): ${n.text.slice(0, 300)}` : `${n.heading}: ${first(n.text)}`);
-  const tour = twin.nodes.find((n) => n.id === tourId)?.tour;
-  const tourText = tour ? `\n\nOPEN FIGURE TOUR: ${tour.title}. ${tour.overview}\n${tour.stops.map((_, i) => `Stop ${i + 1}: ${stopLine(tour.stops, i)}`).join("\n")}` : "";
-  return lines.join("\n").slice(0, 6000 - tourText.length) + tourText;
+  const tourText = tourContext(twin, tourId);
+  return lines.join("\n").slice(0, 6000 - tourText.length) + (tourText && `\n\n${tourText}`);
 }
 
-/** Page text the question session answers from. */
-export function setContext(text: string) {
-  context = text;
-  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "start", context }));
+/** The open figure tour, for the volatile part of the question context. */
+export function tourContext(twin: Twin, tourId: string | null): string {
+  const tour = twin.nodes.find((n) => n.id === tourId)?.tour;
+  return tour ? `OPEN FIGURE TOUR: ${tour.title}. ${tour.overview}\n${tour.stops.map((_, i) => `Stop ${i + 1}: ${stopLine(tour.stops, i)}`).join("\n")}` : "";
+}
+
+/** Page text the question session answers from: `page` is stable (a change reopens the session), `now` is where the
+ * student is now (sent with the next question only). */
+export function setContext(page: string, now = "") {
+  const changed = page !== context;
+  context = page;
+  where = now;
+  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(changed ? { type: "start", context, where } : { type: "start", where }));
+  else if (changed) socket(); // open the socket (and with it the question session) when a page loads
 }
 
 export function prefetch(text: string) {

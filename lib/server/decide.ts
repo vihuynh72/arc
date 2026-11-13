@@ -40,7 +40,7 @@ const ACTIONS: Record<Action, string> = {
   open: "open one of the listed search results, or a link the student names",
   refresh: "fetch the current page again, live from the web",
   question: "answer a question about the content of this page",
-  display: "change how the page looks: text size, colours, contrast, brightness, spacing, font, focus line or motion",
+  display: "change how the page looks: text size, colours, contrast, brightness, spacing, font, focus line or motion; or say they are blind (voice first)",
   none: "not a request to Arc",
 };
 

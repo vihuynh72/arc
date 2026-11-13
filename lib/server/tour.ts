@@ -149,7 +149,36 @@ export async function prepared(imageUrl: string): Promise<Tour | null> {
 
 /** The best tour already on disk, without calling a model: prepared, then full, then quick. */
 export async function cachedTour(imageUrl: string): Promise<Tour | null> {
-  return (await prepared(imageUrl)) ?? (await readJson(fullFile(imageUrl))) ?? (await readJson(quickFile(imageUrl)));
+  const quick = async () => {
+    const q = await readJson(quickFile(imageUrl));
+    return q && quietChart(q); // older saved quick tours were written before numbers were stripped
+  };
+  return (await prepared(imageUrl)) ?? (await readJson(fullFile(imageUrl))) ?? (await quick());
+}
+
+// A count or a value said by the light model cannot be checked by a blind student, and was wrong ("nine cycles" for ten).
+const COUNTED = /\d|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|hundred|thousand|dozens?|twice|thrice|single|half)\b/i;
+export const STILL_READING = "I am still reading the exact values.";
+// "Two series: left and right knee" keeps the names: the count word before series, lines or bars is dropped first.
+const SERIES_COUNT = /\b(?:\d+|two|three|four|five|six|seven|eight|nine|ten)\s+(series|lines|curves|bars|groups)\b/gi;
+const quiet = (t: string) =>
+  t
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.replace(SERIES_COUNT, "$1").replace(/^\s*(?:there are\s+)?(\w)/i, (_, c: string) => c.toUpperCase()))
+    .filter((s) => s.trim() && !COUNTED.test(s))
+    .join(" ");
+
+/** A quick-stage chart tour without counts or values: chart kind, axes and series names only, until the full one comes. */
+export function quietChart(t: Tour): Tour {
+  if (t.stage !== "quick") return t;
+  const stops = t.stops.map((s) => ({ ...s, says: quiet(s.says) })).filter((s) => s.says).map((s, i) => ({ ...s, n: i + 1 }));
+  const base = quiet(t.overview.replace(STILL_READING, "").trim()) || "A chart.";
+  return {
+    ...t,
+    title: COUNTED.test(t.title.replace(/\b(?:figure|fig\.?)\s*\d+[a-z]?\b/gi, "")) ? "Chart" : t.title,
+    overview: `${base} ${STILL_READING}`,
+    stops: stops.length ? stops : [{ n: 1, label: "Chart", says: base, box_2d: [0, 0, 1000, 1000], confidence: "low" }],
+  };
 }
 
 async function fetchImage(imageUrl: string): Promise<Part | null> {
@@ -181,7 +210,8 @@ export async function quickTour(imageUrl: string): Promise<Tour | null> {
     if (!isChart) return null;
     stops.splice(0, stops.length, { n: 1, label: "Chart", says: raw.overview ?? "A chart.", box_2d: [0, 0, 1000, 1000], confidence: "low" });
   }
-  const tour: Tour = { title: raw.title ?? "Figure", overview: raw.overview ?? "", source: imageUrl, stops, ...(isChart ? { stage: "quick" as const } : {}) };
+  const made: Tour = { title: raw.title ?? "Figure", overview: raw.overview ?? "", source: imageUrl, stops, ...(isChart ? { stage: "quick" as const } : {}) };
+  const tour = quietChart(made);
   await save(isChart ? quickFile(imageUrl) : fullFile(imageUrl), tour);
   return tour;
 }

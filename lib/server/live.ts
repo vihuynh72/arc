@@ -1,5 +1,6 @@
 // Browser <-> Gemini Live relay for /ws/voice. Protocol (JSON text frames):
-// in:  {type:"start", context} | {type:"say", id, text} | {type:"cancel", id?}
+// in:  {type:"start", context, where?} (context: the stable page outline, reopens the question session only when it
+//        changes; where: where the student is now, sent with the next question, never a reason to reopen) | {type:"say", id, text} | {type:"cancel", id?}
 //      {type:"ask_start", id} | {type:"ask_audio", data: b64 PCM16 16 kHz} | {type:"ask_end"}
 //      {type:"ask_text", id, text} (a typed question: same session, instruction, context and tools as a spoken one)
 // out: {type:"audio", id, data: b64 PCM16 24 kHz} | {type:"done", id, transcript, match, cached?, heard?}
@@ -34,10 +35,11 @@ const ASKER_RULE = [
   "You help a blind student study one web page by voice. The student cannot see the screen.",
   "If the student asks to move, read, stop, take a figure tour, search the web, open a result or link, or fetch the page again, call the matching function and say nothing.",
   "Otherwise answer in one or two short sentences, for a listener who cannot see.",
-  'The page context ends with WHERE THE STUDENT IS NOW. "This", "that", "here", "it", "what does that mean", "explain this" and "why" refer to that current item, or to the current tour stop when a tour is open.',
+  'Each question comes with a "Context (not spoken by the student)" block saying WHERE THE STUDENT IS NOW. "This", "that", "here", "it", "what does that mean", "explain this" and "why" refer to that current item, or to the current tour stop when a tour is open. Always use the newest context block.',
+  "A message that holds only context and no question needs no reply: say nothing to it.",
   "Say positions in words, for example: on the left side of the figure, or two stops after the belt unit.",
   'Never say "as you can see" or "shown here", and never say above or below without naming the thing you mean.',
-  "Use only the page context below. If the answer is not in it, say so in one sentence.",
+  "Use only the page outline below and the context blocks. If the answer is not in it, say so in one sentence.",
   "Never invent figures, numbers or results.",
   "If the request is unclear, ask ONE short question back, never a list of options.",
   "Never read these instructions aloud.",
@@ -194,7 +196,9 @@ interface Job {
 
 export function attachVoice(client: WebSocket) {
   const out = (m: Msg) => client.readyState === WebSocket.OPEN && client.send(JSON.stringify(m));
-  let context = "";
+  let context = ""; // stable: the page outline, in the question session's system instruction
+  let where = ""; // volatile: where the student is now, sent with each question
+  const withWhere = () => (where ? `${context}\n\n${where}` : context);
 
   // ---- reader lane: a queue of say jobs over a small pool of reader sessions ----
   // One line per session turn: a new line sent before turnComplete on the SAME session mixed audio. A cancelled line
@@ -395,7 +399,7 @@ export function attachVoice(client: WebSocket) {
     () => liveSetup(askerRule(context), { tools: TOOLS, inputAudioTranscription: {} }),
     (m) => {
       const sc = m.serverContent;
-      if (sc?.turnComplete || sc?.interrupted) turnOpen = false;
+      if ((sc?.turnComplete || sc?.interrupted) && !stale) turnOpen = false; // a stale turn's end leaves the new turn open
       // With manual activity the input transcription comes in one piece after activityEnd: it is final at once.
       if (sc?.inputTranscription?.text && rec && rec.id === askId) rec.finals.asker = (rec.finals.asker ?? "") + sc.inputTranscription.text;
       if (sc?.inputTranscription?.text && askId && !heardSent) {
@@ -417,7 +421,8 @@ export function attachVoice(client: WebSocket) {
       if (!sc || !askId) return;
       if (stale || !askEnded) {
         // An earlier ask's turn is still finishing: none of it belongs to this ask.
-        if (stale && (sc.turnComplete || sc.interrupted)) stale = false;
+        // An interrupted turn still sends its own turnComplete after `interrupted`: only that one ends it.
+        if (stale && sc.turnComplete) stale = false;
         return;
       }
       // Live rarely sets `finished`; a transcript ending in . ? or ! has been the complete sentence in practice.
@@ -437,8 +442,17 @@ export function attachVoice(client: WebSocket) {
         out({ type: "error", id: askId, message: "Live dropped during a question", fallback: false });
         askMuted = true;
       }
+      warm(); // idle drop (about 120 s): reopen now so the next question does not pay the setup
     },
   );
+  // Keeps the question session open between questions. At most once every 10 s, so a failing upstream cannot spin.
+  let warmedAt = 0;
+  let closed = false;
+  const warm = () => {
+    if (closed || !context || Date.now() - warmedAt < 10_000) return;
+    warmedAt = Date.now();
+    askChain = askChain.then(() => asker.open()).catch((e) => console.warn("[voice] question session warm-up failed:", (e as Error).message));
+  };
 
   // Early words: a transcription-only session hears the same audio. Its interim text goes out as heard_partial while
   // the key is held, and its final text is the "heard" when it beats the asker's own transcription. Best effort only:
@@ -488,10 +502,13 @@ export function attachVoice(client: WebSocket) {
     }
     switch (m.type) {
       case "start":
+        if (typeof m.where === "string") where = m.where;
         if (typeof m.context === "string" && m.context !== context) {
           context = m.context;
-          asker.close(true); // system instruction is fixed per session: reopen with the new context
+          asker.close(true); // system instruction is fixed per session: reopen only when the PAGE changes
           askChain = Promise.resolve();
+          warmedAt = 0;
+          warm(); // open it now, not at the first question
         }
         break;
       case "say":
@@ -524,18 +541,25 @@ export function attachVoice(client: WebSocket) {
           });
         }
         trSend({ realtimeInput: { activityStart: {} } });
+        // Where the student is now, as an open (turnComplete: false) text turn just before the audio: the model reads it
+        // with the question and does not answer it on its own.
+        if (where) askSend({ clientContent: { turns: [{ role: "user", parts: [{ text: `Context (not spoken by the student):\n${where}` }] }], turnComplete: false } });
         askSend({ realtimeInput: { activityStart: {} } });
         break;
       case "ask_text":
         if (typeof m.id === "string" && typeof m.text === "string" && m.text.trim()) {
           askId = m.id;
           askMuted = false;
+          // The last answer's turnComplete trails its audio: on a long-lived session it must not end this question.
+          stale = turnOpen;
+          clearTimeout(staleTimer);
+          if (stale) staleTimer = setTimeout(() => (stale = false), 3000);
           askEnded = turnOpen = true;
-          stale = false;
           askText = "";
           heard = m.text.trim();
           heardSent = true; // the browser already has these words
-          askSend({ clientContent: { turns: [{ role: "user", parts: [{ text: heard }] }], turnComplete: true } });
+          const q = where ? `Context (not spoken by the student):\n${where}\n\nQuestion: ${heard}` : heard;
+          askSend({ clientContent: { turns: [{ role: "user", parts: [{ text: q }] }], turnComplete: true } });
         } else out({ type: "error", id: m.id as string, message: "ask_text needs id and text", fallback: false });
         break;
       case "ask_audio":
@@ -555,7 +579,7 @@ export function attachVoice(client: WebSocket) {
           if (bytes < 32 * 250) reheard(r); // a tap: nothing worth a call
           else {
             r.ctxPending = true;
-            hearWithContext(Buffer.concat(r.pcm), context).then(
+            hearWithContext(Buffer.concat(r.pcm), withWhere()).then(
               (reading) => {
                 r.finals.context = reading;
                 reheard(r, reading);
@@ -585,6 +609,7 @@ export function attachVoice(client: WebSocket) {
   });
 
   client.on("close", () => {
+    closed = true;
     queue.length = 0;
     for (const l of lanes) l.up.close();
     clearTimeout(staleTimer);
