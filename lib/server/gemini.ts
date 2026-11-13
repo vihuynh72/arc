@@ -56,7 +56,12 @@ export async function generateJson<T>(
       if (!res.ok) throw new Error(`Gemini HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
       const data = await res.json();
       const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (typeof text !== "string") throw new Error("Gemini returned no text");
+      if (typeof text !== "string") {
+        // An empty answer happens under load (seen on the video outline); retry once, then fail.
+        if (lastErr === "no text") throw new Error("Gemini returned no text");
+        lastErr = "no text";
+        continue;
+      }
       return JSON.parse(text) as T;
     }
     throw new Error(`Gemini gave up after retries (${lastErr})`);

@@ -27,6 +27,7 @@ export interface AskHooks {
   heard(text: string): void;
   command(name: string, args: Record<string, unknown>): void;
   first(): void; // Gemini's first audio or command
+  partial?(text: string): void; // the whole transcript so far, while the key is still held
 }
 
 let ws: WebSocket | undefined;
@@ -58,6 +59,7 @@ function socket(): WebSocket {
     const e = byId.get(m.id);
     if (e?.on && (m.type === "audio" || m.type === "command") && !e.chunks.length) e.on.first();
     if (m.type === "heard") return e?.on?.heard(m.text ?? "");
+    if (m.type === "heard_partial") return e?.on?.partial?.(m.text ?? "");
     if (m.type === "command") {
       if (e?.on) return e.on.command(m.name, m.args ?? {});
       window.dispatchEvent(new CustomEvent("arc:command", { detail: { name: m.name, args: m.args } }));
@@ -138,8 +140,23 @@ export function say(text: string): Promise<void> {
   return play(request(text.trim()), kokoro.off ? undefined : `/api/speak?text=${encodeURIComponent(text.trim())}`);
 }
 
-/** Stops whatever is playing, at once. */
+/** Stops whatever is playing, at once, and tells the relay to drop lines that were not finished. */
 export function stop() {
+  const p = playingId ? byId.get(playingId) : undefined;
+  if (p && p.key !== p.id && !p.done && !p.failed) {
+    // An unfinished line: the relay lets it finish on its own session and starts the next line at once.
+    send({ type: "cancel", id: p.id });
+    byKey.delete(p.key); // asked again next time (the relay's disk cache has it by then)
+  }
+  for (const e of byKey.values())
+    if (!e.done && !e.failed && e.id !== playingId) {
+      send({ type: "cancel", id: e.id }); // a prefetched line ahead of the new one must not hold the queue
+      byKey.delete(e.key);
+    }
+  halt();
+}
+
+function halt() {
   token++;
   for (const s of sources) {
     s.onended = null;
@@ -204,7 +221,7 @@ function playEl(url: string, rate: number, my: number, done: () => void) {
 
 /** Plays a sound file to the end (or until stop()). */
 export function playUrl(url: string, rate = 1): Promise<void> {
-  stop();
+  halt();
   const my = token;
   return new Promise((resolve) => {
     endCurrent = resolve;
@@ -218,7 +235,7 @@ export function playUrl(url: string, rate = 1): Promise<void> {
 export const chime = () => playUrl("/chime-a.wav");
 
 function play(e: Entry, fallback?: string): Promise<void> {
-  stop();
+  halt(); // not stop(): this line may be the prefetched one, which must not be cancelled
   const my = token;
   playingId = e.id;
   return new Promise<void>((resolve) => {

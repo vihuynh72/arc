@@ -2,8 +2,9 @@
 // Push-to-talk, mounted once in the page header. Hold Space anywhere outside a text field, or click to start and click
 // again to stop. Escape stops both voices everywhere. Snap decides first ("Gemini should wrap around Snap"): when Snap is
 // sure the command runs at once and Gemini's reply is dropped; otherwise Gemini answers, asks what was meant, or its command runs.
-// Speed: the browser's own speech recognition runs while the key is held. Its words are pre-asked to Snap once stable,
-// and on release a sure decision acts without waiting for Gemini Live's transcript ("heard").
+// Speed: early words come from two sources while the key is held: Gemini's transcription session ("heard_partial", via the
+// relay) and, where it exists, the browser's own speech recognition. Either one's words are pre-asked to Snap once stable,
+// and on release a sure decision acts without waiting for the final transcript ("heard").
 // Kokoro reading the node where the cursor lands is the confirmation, so this control speaks none of its own.
 import { useEffect, useRef, useState } from "react";
 import { startMic } from "@/lib/client/audio";
@@ -24,7 +25,9 @@ interface Ask {
   held: { name: string; args: Args }[]; // Gemini commands waiting for Snap's decision
   ran: boolean;
   gemini?: number;
-  words: string; // browser transcript so far, final plus interim
+  words: string; // early transcript so far, from whichever source spoke last
+  wordsAt: number; // when words last changed
+  fromGemini: boolean; // words came from Gemini's transcription, which trails speech by about 0.8 s
   early?: Promise<void>; // the decision on the browser transcript; "heard" waits for it
   rec?: { stop(): void; abort(): void };
 }
@@ -95,6 +98,11 @@ export default function AskButton() {
       ask.gemini = performance.now();
       time(ask, "gemini first audio or command");
     },
+    partial: (text) => {
+      if (mic.current?.ask !== ask || !text.trim()) return;
+      if (!ask.words) time(ask, `first gemini partial "${text}"`);
+      early(ask, text, true);
+    },
     command: (name, args) => {
       if (ask.owner === "gemini") runGemini(ask, name, args);
       else if (!ask.owner) ask.held.push({ name, args });
@@ -122,22 +130,32 @@ export default function AskButton() {
     },
   });
 
-  // Browser speech recognition while the key is held. Missing or failing, it simply yields no words.
+  // New early words while the key is held: pre-ask Snap once they stay unchanged for STABLE_MS. Never acts.
+  const timers = useRef(new Map<Ask, ReturnType<typeof setTimeout>>());
+  const early = (ask: Ask, text: string, fromGemini: boolean) => {
+    const w = text.replace(/\s+/g, " ").trim();
+    if (w === ask.words) return;
+    ask.words = w;
+    ask.wordsAt = performance.now();
+    ask.fromGemini = fromGemini;
+    clearTimeout(timers.current.get(ask));
+    if (w) timers.current.set(ask, setTimeout(() => mic.current?.ask === ask && void preDecide(w).catch(() => {}), STABLE_MS));
+  };
+
+  // Browser speech recognition while the key is held: optional. Missing, failing or silent, Gemini's words still arrive.
   const listen = (ask: Ask) => {
     const W = window as unknown as { SpeechRecognition?: new () => Rec; webkitSpeechRecognition?: new () => Rec };
     const Ctor = W.SpeechRecognition ?? W.webkitSpeechRecognition;
     if (!Ctor) return;
-    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const rec = new Ctor();
       rec.lang = "en-US";
       rec.continuous = true;
       rec.interimResults = true;
       rec.onresult = (e) => {
-        ask.words = Array.from(e.results, (r) => r[0]?.transcript ?? "").join(" ").replace(/\s+/g, " ").trim();
-        clearTimeout(timer);
-        const w = ask.words;
-        if (w) timer = setTimeout(() => mic.current?.ask === ask && void preDecide(w).catch(() => {}), STABLE_MS);
+        try {
+          if (mic.current?.ask === ask) early(ask, Array.from(e.results, (r) => r[0]?.transcript ?? "").join(" "), false);
+        } catch {}
       };
       rec.onerror = () => {};
       rec.start();
@@ -150,7 +168,7 @@ export default function AskButton() {
   const begin = (source: Mic = startMic) => {
     if (mic.current) return;
     speaker.cancel(); // both voices stop at once: askStart stops the Live voice
-    const ask: Ask = { id: "", t0: performance.now(), held: [], ran: false, words: "" };
+    const ask: Ask = { id: "", t0: performance.now(), held: [], ran: false, words: "", wordsAt: 0, fromGemini: false };
     ask.id = askStart(hooks(ask));
     current.current = ask;
     setLine("");
@@ -171,10 +189,17 @@ export default function AskButton() {
     mic.current = undefined;
     setState((s) => (s === "error" ? s : "idle")); // at once: a pending microphone prompt must not leave it "Listening"
     const ask = m.ask;
-    const words = ask.words; // taken at release; later results are ignored
-    const tap = performance.now() - ask.t0 < TAP_MS && !words;
+    clearTimeout(timers.current.get(ask));
+    timers.current.delete(ask);
+    // Taken at release; later results are ignored. Gemini's interim words trail speech, so they are used only when they
+    // had already stopped changing (the student had finished); otherwise its final "heard" (about 0.3 s) decides.
+    const stable = !ask.fromGemini || performance.now() - ask.wordsAt >= STABLE_MS;
+    const words = stable ? ask.words : "";
+    const tap = performance.now() - ask.t0 < TAP_MS && !ask.words;
     if (tap) ask.owner = "snap"; // nobody answers a tap: "heard" and Gemini's reply are ignored
-    ask.rec?.[tap ? "abort" : "stop"]();
+    try {
+      ask.rec?.[tap ? "abort" : "stop"]();
+    } catch {}
     (await m.close)?.();
     ask.t0 = performance.now();
     askEnd();
@@ -237,18 +262,27 @@ export default function AskButton() {
     (window as unknown as { __arcTest?: object }).__arcTest = {
       audioState,
       say,
+      // Chunks are fed in real time (each one's own length), as a microphone would, so heard_partial timing is real.
       ask: async (chunks: string[], words = "", holdMs = 0) => {
+        const ms = (b64: string) => (b64.length * 3) / 4 / 32; // 16 kHz PCM16: 32 bytes per ms
+        let feeding = Promise.resolve();
         begin(async (onChunk) => {
-          chunks.forEach(onChunk);
+          feeding = (async () => {
+            const t = performance.now();
+            let at = 0;
+            for (const c of chunks) {
+              await new Promise((r) => setTimeout(r, Math.max(0, t + at - performance.now())));
+              onChunk(c);
+              at += ms(c);
+            }
+          })();
           return () => {};
         });
+        await new Promise((r) => setTimeout(r, 0));
+        await feeding;
         const ask = mic.current!.ask;
-        if (words && holdMs > STABLE_MS) {
-          ask.words = words;
-          setTimeout(() => void preDecide(words).catch(() => {}), STABLE_MS);
-        }
+        if (words) early(ask, words, false); // a stand-in browser transcript; without one only Gemini's words are used
         if (holdMs) await new Promise((r) => setTimeout(r, holdMs));
-        ask.words = words;
         await end();
       },
     };

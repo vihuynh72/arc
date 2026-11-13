@@ -4,6 +4,7 @@
 //      {type:"ask_text", id, text} (a typed question: same session, instruction, context and tools as a spoken one)
 // out: {type:"audio", id, data: b64 PCM16 24 kHz} | {type:"done", id, transcript, match, cached?, heard?}
 //      {type:"heard", id, text} (once per ask, as soon as the student's words are final, before any answer)
+//      {type:"heard_partial", id, text} (while the key is held: the whole transcript so far, from the transcription session)
 //      {type:"command", id, name, args} | {type:"error", id?, message, fallback}
 // Two upstream sessions per browser socket: a strict reader, and an asker that holds page context
 // and tools. One session for both made the reader speak page context instead of the given text.
@@ -15,6 +16,9 @@ import { GEMINI_LIVE_MODEL, LIVE_VOICE } from "../models";
 const LIVE_URL =
   "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
 const CACHE_DIR = ".cache/audio";
+// Transcription only (no audio out, no tools): interim words while the student still speaks. Kept here, not in
+// lib/models.ts, because only this relay uses it.
+const TRANSCRIBE_MODEL = "gemini-3.5-transcribe-live";
 
 // Tour reader: strict, reads exactly what it is given.
 const READER_RULE =
@@ -84,6 +88,7 @@ class Upstream {
     private setup: () => object,
     private onMessage: (m: LiveMsg) => void,
     private onDrop: () => void,
+    private resumable = true,
   ) {}
 
   /** Opens (or reuses) the session; retries once, then rejects. */
@@ -104,7 +109,7 @@ class Upstream {
       const timer = setTimeout(() => ws.terminate(), 8000);
       ws.on("open", () => {
         const s = this.setup() as { setup: Record<string, unknown> };
-        s.setup.sessionResumption = this.handle ? { handle: this.handle } : {};
+        if (this.resumable) s.setup.sessionResumption = this.handle ? { handle: this.handle } : {};
         ws.send(JSON.stringify(s));
       });
       ws.on("message", (d) => {
@@ -120,6 +125,7 @@ class Upstream {
           this.ws = ws;
           return resolve();
         }
+        if (this.ws !== ws) return; // a socket closed by close(): its late messages belong to nobody
         if (m.sessionResumptionUpdate?.resumable && m.sessionResumptionUpdate.newHandle) this.handle = m.sessionResumptionUpdate.newHandle;
         this.onMessage(m);
       });
@@ -185,55 +191,67 @@ export function attachVoice(client: WebSocket) {
   const out = (m: Msg) => client.readyState === WebSocket.OPEN && client.send(JSON.stringify(m));
   let context = "";
 
-  // ---- reader lane: serial queue of say jobs ----
+  // ---- reader lane: a queue of say jobs over a small pool of reader sessions ----
+  // One line per session turn: a new line sent before turnComplete on the SAME session mixed audio. A cancelled line
+  // keeps generating on its own session (so the cache fills) while the next line starts at once on another one.
+  // Lines that are not cancelled still go one at a time, in order.
+  const POOL = 4;
+  interface Lane {
+    up: Upstream;
+    job?: Job; // generating now
+    turnOpen: boolean; // Live takes the next turn only after turnComplete
+  }
   const queue: Job[] = [];
-  let active: Job | undefined;
-  let turnOpen = false; // Live takes the next turn only after turnComplete
+  const lanes: Lane[] = [];
 
-  const reader = new Upstream(
-    () => liveSetup(READER_RULE),
-    (m) => {
-      const sc = m.serverContent;
-      if (!sc) return;
-      const job = active;
-      if (job) {
-        for (const p of sc.modelTurn?.parts ?? []) {
-          if (!p.inlineData?.data) continue;
-          job.audio.push(Buffer.from(p.inlineData.data, "base64"));
-          if (!job.cancelled) out({ type: "audio", id: job.id, data: p.inlineData.data });
+  function lane(): Lane {
+    const l: Lane = { turnOpen: false } as Lane;
+    l.up = new Upstream(
+      () => liveSetup(READER_RULE),
+      (m) => {
+        const sc = m.serverContent;
+        if (!sc) return;
+        const job = l.job;
+        if (job) {
+          for (const p of sc.modelTurn?.parts ?? []) {
+            if (!p.inlineData?.data) continue;
+            job.audio.push(Buffer.from(p.inlineData.data, "base64"));
+            if (!job.cancelled) out({ type: "audio", id: job.id, data: p.inlineData.data });
+          }
+          if (sc.outputTranscription?.text) job.transcript += sc.outputTranscription.text;
+          // All audio is in at generationComplete; turnComplete trails it by about the speaking time.
+          if (sc.generationComplete || sc.turnComplete || sc.interrupted) {
+            l.job = undefined;
+            finish(job, !sc.interrupted);
+          }
         }
-        if (sc.outputTranscription?.text) job.transcript += sc.outputTranscription.text;
-        // All audio is in at generationComplete; turnComplete trails it by about the speaking time.
-        if (sc.generationComplete || sc.turnComplete || sc.interrupted) finish(job, !sc.interrupted);
-      }
-      if (sc.turnComplete || sc.interrupted) {
-        turnOpen = false;
+        if (sc.turnComplete || sc.interrupted) l.turnOpen = false;
         pump();
-      }
-    },
-    () => {
-      // Dropped mid-turn: resend once on a resumed session.
-      turnOpen = false;
-      const job = active;
-      active = undefined;
-      if (job && job.retried) fail(job, "Live dropped twice");
-      else if (job) {
-        job.retried = true;
-        job.audio = [];
-        job.transcript = "";
-        queue.unshift(job);
-      }
-      pump();
-    },
-  );
-
+      },
+      () => {
+        // Dropped mid-turn: resend once on a resumed session.
+        l.turnOpen = false;
+        const job = l.job;
+        l.job = undefined;
+        if (job && job.retried) fail(job, "Live dropped twice");
+        else if (job && !job.cancelled) {
+          job.retried = true;
+          job.audio = [];
+          job.transcript = "";
+          queue.unshift(job);
+        }
+        pump();
+      },
+    );
+    lanes.push(l);
+    return l;
+  }
   function fail(job: Job, message: string) {
     console.warn(`[voice] ${message}`);
     out({ type: "error", id: job.id, message, fallback: true });
   }
 
   function finish(job: Job, complete: boolean) {
-    active = undefined;
     const match = normalize(job.transcript) === normalize(job.text);
     if (!match) console.warn(`[voice] transcript mismatch for ${job.id}: wanted "${job.text}" got "${job.transcript}"`);
     if (complete && match && job.audio.length) {
@@ -246,19 +264,39 @@ export function attachVoice(client: WebSocket) {
   }
 
   async function pump() {
-    if (turnOpen || active || !queue.length) return;
-    const job = (active = queue.shift()!);
-    turnOpen = true;
+    if (!queue.length) return;
+    if (lanes.some((l) => l.job && !l.job.cancelled)) return; // in order: the next line waits for this one's audio
+    let l = lanes.find((x) => !x.job && !x.turnOpen) ?? (lanes.length < POOL ? lane() : undefined);
+    if (!l) {
+      // turnComplete trails the audio by about the speaking time, so every session can be waiting on one. Rather than
+      // wait, drop a session whose line is fully received (or cancelled) and start the line on a fresh connection.
+      l = lanes.find((x) => !x.job) ?? lanes.find((x) => x.job?.cancelled);
+      if (!l) return;
+      l.job = undefined;
+      l.up.close(true);
+    }
+    const job = (l.job = queue.shift()!);
+    l.turnOpen = true;
+    // Keep one spare session warm so a cancel never waits for a session to open.
+    if (lanes.length < POOL && !lanes.some((x) => x !== l && !x.job && !x.turnOpen)) void lane().up.open().catch(() => {});
     try {
-      await reader.open();
+      await l.up.open();
     } catch (e) {
-      active = undefined;
-      turnOpen = false;
+      if (l.job !== job) return fail(job, (e as Error).message); // this session was recycled for a newer line
+      l.job = undefined;
+      l.turnOpen = false;
       fail(job, (e as Error).message);
       for (const j of queue.splice(0)) fail(j, "Live unavailable");
       return;
     }
-    reader.send({ clientContent: { turns: [{ role: "user", parts: [{ text: job.text }] }], turnComplete: true } });
+    if (l.job !== job) return; // recycled for a newer line while it opened
+    if (job.cancelled) {
+      // cancelled while the session opened: nothing was sent, so the turn never started
+      l.job = undefined;
+      l.turnOpen = false;
+      return pump();
+    }
+    l.up.send({ clientContent: { turns: [{ role: "user", parts: [{ text: job.text }] }], turnComplete: true } });
   }
 
   async function say(id: string, text: string) {
@@ -277,10 +315,14 @@ export function attachVoice(client: WebSocket) {
   // ---- asker lane: push-to-talk with page context and tools ----
   let askId: string | undefined;
   let askMuted = false;
+  let askEnded = false; // the key is released (activityEnd sent): the next transcription is the final one
   let askText = "";
   let heard = "";
   let heardSent = false;
   let askChain: Promise<unknown> = Promise.resolve();
+  let turnOpen = false; // the asker's model turn for the last ask has not completed
+  let stale = false; // that open turn belongs to an earlier ask: its follow-up after a tool call must not end this one
+  let staleTimer: ReturnType<typeof setTimeout> | undefined;
 
   // The browser decides on these words first (Snap); send them once, at the earliest final moment.
   // Transcription can trail the model's first part, so an empty text waits unless the turn is over.
@@ -293,21 +335,31 @@ export function attachVoice(client: WebSocket) {
   const asker = new Upstream(
     () => liveSetup(askerRule(context), { tools: TOOLS, inputAudioTranscription: {} }),
     (m) => {
+      const sc = m.serverContent;
+      if (sc?.turnComplete || sc?.interrupted) turnOpen = false;
+      // With manual activity the input transcription comes in one piece after activityEnd: it is final at once.
+      if (sc?.inputTranscription?.text && askId && !heardSent) {
+        heard += sc.inputTranscription.text;
+        if (askEnded) sendHeard(true);
+      }
       if (m.toolCall) {
         const calls = m.toolCall.functionCalls ?? [];
         asker.send({
           toolResponse: { functionResponses: calls.map((f: LiveMsg) => ({ id: f.id, name: f.name, response: { result: "done" } })) },
         });
-        if (!askId || askMuted) return;
+        if (!askId || askMuted || stale || !askEnded) return;
         sendHeard(true); // before the command, so the browser can let Snap decide first
         for (const f of calls) out({ type: "command", id: askId, name: f.name, args: f.args ?? {} });
         out({ type: "done", id: askId, transcript: "", match: true, heard });
         askMuted = true; // the page speaks the confirmation; drop the model's own follow-up turn
         return;
       }
-      const sc = m.serverContent;
       if (!sc || !askId) return;
-      if (sc.inputTranscription?.text && !heardSent) heard += sc.inputTranscription.text;
+      if (stale || !askEnded) {
+        // An earlier ask's turn is still finishing: none of it belongs to this ask.
+        if (stale && (sc.turnComplete || sc.interrupted)) stale = false;
+        return;
+      }
       // Live rarely sets `finished`; a transcript ending in . ? or ! has been the complete sentence in practice.
       const over = !!(sc.inputTranscription?.finished || /[.?!]\s*$/.test(heard) || sc.generationComplete || sc.turnComplete || sc.interrupted);
       if (over || sc.modelTurn) sendHeard(over);
@@ -320,12 +372,40 @@ export function attachVoice(client: WebSocket) {
       }
     },
     () => {
+      turnOpen = stale = false;
       if (askId && !askMuted) {
         out({ type: "error", id: askId, message: "Live dropped during a question", fallback: false });
         askMuted = true;
       }
     },
   );
+
+  // Early words: a transcription-only session hears the same audio. Its interim text goes out as heard_partial while
+  // the key is held, and its final text is the "heard" when it beats the asker's own transcription. Best effort only:
+  // when it fails, the asker's transcription is the only source, as before.
+  let trUp = false;
+  let trChain: Promise<unknown> = Promise.resolve();
+  const tr = new Upstream(
+    () => ({ setup: { model: `models/${TRANSCRIBE_MODEL}`, inputAudioTranscription: {}, realtimeInputConfig: { automaticActivityDetection: { disabled: true } } } }),
+    (m) => {
+      const sc = m.serverContent;
+      if (!sc || !askId || heardSent || askMuted) return;
+      const interim = sc.interimInputTranscription?.text;
+      if (interim && !askEnded) out({ type: "heard_partial", id: askId, text: String(interim).trim() });
+      const fin = sc.inputTranscription?.text;
+      if (fin && askEnded && String(fin).trim()) {
+        heard = String(fin);
+        sendHeard(true);
+      }
+    },
+    () => {},
+    false,
+  );
+  let trDownAt = 0; // a failed open pauses this session for a minute instead of retrying on every audio chunk
+  const trSend = (obj: object) => {
+    if (!trUp || Date.now() - trDownAt < 60_000) return;
+    trChain = trChain.then(() => tr.open()).then(() => tr.send(obj)).catch(() => (trDownAt = Date.now()));
+  };
 
   // Ordered sends that wait for the asker session to be open.
   const askSend = (obj: object) => {
@@ -356,20 +436,34 @@ export function attachVoice(client: WebSocket) {
         break;
       case "cancel":
         for (let i = queue.length - 1; i >= 0; i--) if (!m.id || queue[i].id === m.id) queue.splice(i, 1);
-        if (active && (!m.id || active.id === m.id)) active.cancelled = true; // keeps generating so the cache fills
+        for (const l of lanes) if (l.job && (!m.id || l.job.id === m.id)) l.job.cancelled = true; // keeps generating so the cache fills
+        pump(); // the next line may start on another session now
         if (!m.id || m.id === askId) askMuted = true;
         break;
       case "ask_start":
         askId = String(m.id);
-        askMuted = false;
+        askMuted = askEnded = false;
         askText = heard = "";
         heardSent = false;
+        stale = turnOpen;
+        clearTimeout(staleTimer);
+        if (stale) staleTimer = setTimeout(() => (stale = false), 3000); // never let a lost turnComplete mute later asks
+        if (!trUp) {
+          trUp = true; // opened on the first ask, then kept warm
+          trChain = tr.open().catch((e) => {
+            trDownAt = Date.now();
+            console.warn("[voice] transcription session unavailable:", (e as Error).message);
+          });
+        }
+        trSend({ realtimeInput: { activityStart: {} } });
         askSend({ realtimeInput: { activityStart: {} } });
         break;
       case "ask_text":
         if (typeof m.id === "string" && typeof m.text === "string" && m.text.trim()) {
           askId = m.id;
           askMuted = false;
+          askEnded = turnOpen = true;
+          stale = false;
           askText = "";
           heard = m.text.trim();
           heardSent = true; // the browser already has these words
@@ -377,9 +471,15 @@ export function attachVoice(client: WebSocket) {
         } else out({ type: "error", id: m.id as string, message: "ask_text needs id and text", fallback: false });
         break;
       case "ask_audio":
-        if (typeof m.data === "string") askSend({ realtimeInput: { audio: { data: m.data, mimeType: "audio/pcm;rate=16000" } } });
+        if (typeof m.data === "string") {
+          const audio = { realtimeInput: { audio: { data: m.data, mimeType: "audio/pcm;rate=16000" } } };
+          trSend(audio);
+          askSend(audio);
+        }
         break;
       case "ask_end":
+        askEnded = turnOpen = true;
+        trSend({ realtimeInput: { activityEnd: {} } });
         askSend({ realtimeInput: { activityEnd: {} } });
         break;
       default:
@@ -389,7 +489,9 @@ export function attachVoice(client: WebSocket) {
 
   client.on("close", () => {
     queue.length = 0;
-    reader.close();
+    for (const l of lanes) l.up.close();
+    clearTimeout(staleTimer);
+    tr.close();
     asker.close();
   });
 }
