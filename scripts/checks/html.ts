@@ -23,6 +23,30 @@ const LAZY = `<html><head><meta property="og:title" content="Lazy page"></head><
 <figure><img srcset="https://cdn.example.org/s.jpg 400w, https://cdn.example.org/l.jpg 1200w" src="https://cdn.example.org/s.jpg"></figure>
 </main></body></html>`;
 
+const STORE = `<html><head><title>Shop</title></head><body><header>HEADJUNK</header><main>
+<h2>Best Sellers</h2>
+<ul class="grid">
+<li class="item"><a href="/p/mug"><img src="/mug.jpg" alt="Mug" width="400" height="400"><h3>Blue Mug</h3></a><span class="badge" aria-hidden="true">Best seller</span><div class="price"><span class="visually-hidden">Regular price</span><s>$24.99</s> <span>$19.99</span></div><p class="vendor">Acme Ceramics</p></li>
+<li class="item"><a href="/p/pan"><h3>Iron Pan</h3></a><div class="price"><span class="visually-hidden">Regular price</span>$40.00 <s>$0.00</s></div></li>
+<li class="item"><a href="/p/jug"><h3>Glass Jug</h3></a><div class="price">$15.50</div><p>Holds two litres.</p></li>
+</ul>
+<h2>New Arrivals</h2>
+<div class="row">
+<div class="product-card"><a class="card__heading" href="/p/a">Wool Scarf</a><span class="badge badge--sold-out">Sold out</span><div class="price">$32.00</div></div>
+<div class="product-card"><a class="card__heading" href="/p/b">Linen Shirt</a><div class="price">$58.00</div></div>
+<div class="product-card"><a class="card__heading" href="/p/c">Canvas Tote</a><div class="price">$21.00</div></div>
+</div></main><footer>FOOTJUNK</footer></body></html>`;
+
+const NEWS = `<html><head><title>Story</title></head><body><main><article><h1>Story</h1>
+<p>${"The city council voted on the new bridge after a long debate. ".repeat(30)}</p>
+<h2>Reaction</h2><p>${"Residents said the plan was overdue and welcomed the news. ".repeat(10)}</p>
+<section><h2>Most viewed</h2><ol>
+<li><a href="/n/1"><h3>Unrelated headline one</h3></a><p>Teaser one.</p></li>
+<li><a href="/n/2"><h3>Unrelated headline two</h3></a><p>Teaser two.</p></li>
+<li><a href="/n/3"><h3>Unrelated headline three</h3></a><p>Teaser three.</p></li>
+<li><a href="/n/4"><h3>Unrelated headline four</h3></a><p>Teaser four.</p></li>
+</ol></section></article></main></body></html>`;
+
 export default function check() {
   const a = parseHtml(ARTICLE, "https://example.org/bio/cells");
   assert.equal(a.source.title, "Cells");
@@ -61,4 +85,27 @@ export default function check() {
     b.nodes.map((n) => n.heading),
     ["Introduction", "Figure 1", "Light", "Figure 2"],
   );
+
+  // Cards: each becomes one node under the heading that introduces its collection.
+  const c = parseHtml(STORE, "https://shop.example.org/");
+  assert.deepEqual(
+    c.nodes.map((n) => [n.level, n.heading, n.text]),
+    [
+      [2, "Best Sellers", "3 items."],
+      [3, "Blue Mug", "Best seller. Price: $19.99, was $24.99. Acme Ceramics."],
+      [3, "Iron Pan", "Price: $40.00."],
+      [3, "Glass Jug", "Price: $15.50. Holds two litres."],
+      [2, "New Arrivals", "3 items."],
+      [3, "Wool Scarf", "Sold out. Price: $32.00."],
+      [3, "Linen Shirt", "Price: $58.00."],
+      [3, "Canvas Tote", "Price: $21.00."],
+    ],
+  );
+  assert.ok(!JSON.stringify(c).includes("JUNK"));
+  assert.deepEqual(c.counts, { sections: 8, figures: 0, segments: 0 });
+
+  // An article's "Most viewed" strip is chrome, not content.
+  const d = parseHtml(NEWS, "https://news.example.org/story");
+  assert.deepEqual(d.nodes.map((n) => n.heading), ["Introduction", "Reaction"]);
+  assert.ok(!/Unrelated|Most viewed|Teaser/.test(JSON.stringify(d)));
 }
