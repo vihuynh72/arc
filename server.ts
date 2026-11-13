@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import next from "next";
 import { WebSocketServer } from "ws";
 import { attachVoice } from "./lib/server/live";
+import { warmAll } from "./lib/server/warm";
 
 try {
   process.loadEnvFile(".env.local");
@@ -30,5 +31,8 @@ app.prepare().then(() => {
     }
   });
 
-  server.listen(port, () => console.log(`Arc ready on http://localhost:${port}`));
+  server.listen(port, () => {
+    console.log(`Arc ready on http://localhost:${port}`);
+    warmAll(); // background only: requests are served while models and sessions load
+  });
 });

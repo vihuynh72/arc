@@ -12,7 +12,7 @@ export const DEFAULT_VOICE = "af_bella";
 export const MAX_WAITING = 4; // a small host: more than one running plus this many waiting is answered 503 at once
 export class Busy extends Error {}
 
-function model(): Promise<KokoroTTS> {
+export function model(): Promise<KokoroTTS> {
   g.__arcKokoro ??= KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", { dtype: "q8", device: "cpu" }).catch((e) => {
     g.__arcKokoro = undefined; // let the next request retry the download
     throw e;

@@ -7,7 +7,7 @@ import Reader from "@/components/Reader";
 import Nodes from "@/components/twin/Nodes";
 import Results, { type Result } from "@/components/twin/Results";
 import { setCommandContext } from "@/lib/client/command";
-import { prefetchClip, said, speaker, startWaitTone } from "@/lib/client/reader";
+import { findNode, prefetchClip, said, speaker, startWaitTone } from "@/lib/client/reader";
 import { pageContext, setContext } from "@/lib/client/voice";
 import type { Tour, Twin as TwinData, TwinNode } from "@/lib/types";
 
@@ -31,6 +31,21 @@ const host = (u = "") => {
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 const took = (ms?: number) => (ms == null ? "." : ms < 50 ? " instantly." : ms < 1000 ? ` in ${plural(ms, "millisecond")}.` : ` in ${(ms / 1000).toFixed(1)} seconds.`);
 const NEXT_STEP = "Paste another link, or hold Space and ask for a paper.";
+const FULL_LINE = "Loading the full page through Bright Data.";
+const VIDEO_LINE = "Outlining the video with Gemini.";
+
+type Hint = { title: string; snippet: string };
+type Preview = TwinData & { from: string };
+type Batch = { results?: Result[]; via?: string; error?: string };
+const counted = (t: TwinData) =>
+  `${plural(t.counts.sections + t.counts.segments, t.counts.segments ? "part" : "section")}${t.counts.figures ? `, ${plural(t.counts.figures, "figure")}` : ""}`;
+// shortcut: reads Speaker's private audio element to find the gap between two sentences; a public hook on Speaker would be cleaner.
+const sentenceEnd = () =>
+  new Promise<void>((done) => {
+    const t0 = performance.now();
+    const tick = () => (!(speaker as unknown as { audio: unknown }).audio || performance.now() - t0 > 8000 ? done() : void setTimeout(tick, 100));
+    tick();
+  });
 
 export default function Twin() {
   const [twin, setTwin] = useState<TwinData | null>(null);
@@ -38,54 +53,117 @@ export default function Twin() {
   const [status, setStatus] = useState("Paste a link, or tell Arc what you want.");
   const [elapsed, setElapsed] = useState<number | null>(null);
   const [tourId, setTourId] = useState<string | null>(null);
+  // Put the reading cursor on this node once it is on screen (a silent goto), then speak the lines.
+  const [cursorTo, setCursorTo] = useState<{ id: string; lines: string[]; then?: () => void } | null>(null);
+  const seq = useRef(0); // the newest load or search; an older one never swaps its result in
+  const cursorHeading = useRef<string | null>(null);
 
   // Warms the voice so these fixed lines start at once.
-  useEffect(() => [LIVE_LINE, NEXT_STEP, "Use the arrow keys, or hold Space and ask."].forEach(prefetchClip), []);
+  useEffect(() => [LIVE_LINE, FULL_LINE, VIDEO_LINE, NEXT_STEP, "Use the arrow keys, or say open the first one.", "Use the arrow keys, or hold Space and ask."].forEach(prefetchClip), []);
+  useEffect(() => {
+    const onCursor = (e: Event) => void (cursorHeading.current = (e as CustomEvent<{ heading: string }>).detail?.heading ?? null);
+    window.addEventListener("arc:cursor", onCursor);
+    return () => window.removeEventListener("arc:cursor", onCursor);
+  }, []);
+  useEffect(() => {
+    if (!cursorTo) return;
+    window.dispatchEvent(new CustomEvent("arc:command", { detail: { name: "goto", args: { id: cursorTo.id, silent: true } } }));
+    said(cursorTo.lines.join(" "));
+    void speaker.say(cursorTo.lines).then(cursorTo.then);
+  }, [cursorTo]); // each request is a new object, so it runs once per request
 
   // live: skip the saved copy. Otherwise the saved copy if there is one, else the server fetches live itself.
-  const load = useCallback(async (target: string, live: boolean) => {
+  // With no saved copy, a quick preview (/api/preview, asked at the same time) is shown and read while the full page loads.
+  const load = useCallback(async (target: string, live: boolean, hint?: Hint) => {
+    const mine = ++seq.current;
     speaker.cancel();
     speaker.resetPatience();
     setFound(null);
     setTourId(null);
+    cursorHeading.current = null;
     const video = VIDEO.test(target);
     setStatus(video ? "Outlining the video." : live ? LIVE_LINE : "Loading.");
     let ended = false;
+    let shown: Preview | null = null;
     let stopTone = () => {};
     let timer: ReturnType<typeof setInterval> | undefined;
-    // No saved copy came back quickly: say why there is a wait, then a soft tone and a counter until it arrives.
-    const waiting = () => {
-      if (ended) return;
-      if (video) return void speaker.say(["Outlining the video with Gemini. This takes a moment."]).then(() => {
-          if (!ended) stopTone = startWaitTone();
-        });
-      setStatus(LIVE_LINE);
+    const tone = () => void (!ended && (stopTone = startWaitTone())); // never over a spoken line
+    const counter = () => {
+      if (video) return;
       setElapsed(0);
       timer = setInterval(() => setElapsed((s) => (s ?? 0) + 1), 1000);
-      void speaker.say([LIVE_LINE]).then(() => {
-        if (!ended) stopTone = startWaitTone(); // never over the spoken line
-      });
     };
-    const soon = setTimeout(waiting, live ? 0 : SAVED_MS);
+    const preview: Promise<Preview | null> = live
+      ? Promise.resolve(null)
+      : fetch("/api/preview", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: target, hint }) })
+          .then((r) => (r.status === 200 ? (r.json() as Promise<Preview>) : null))
+          .catch(() => null);
+    // No saved copy came back quickly: show the preview if there is one, say why there is a wait, then a soft tone and a counter.
+    const waiting = async () => {
+      const p = await preview;
+      if (ended || mine !== seq.current) return;
+      if (p?.nodes?.length) {
+        shown = p;
+        setTwin(p);
+        const line = video ? VIDEO_LINE : FULL_LINE;
+        setStatus(`Preview from ${p.from}. ${line}`);
+        counter();
+        return setCursorTo({ id: p.nodes[0].id, lines: [`${p.source.title}.`, line], then: tone });
+      }
+      if (video) return void speaker.say(["Outlining the video with Gemini. This takes a moment."]).then(tone);
+      setStatus(LIVE_LINE);
+      counter();
+      void speaker.say([LIVE_LINE]).then(tone);
+    };
+    const soon = setTimeout(() => void waiting(), live ? 0 : SAVED_MS);
+    const finish = () => {
+      ended = true;
+      clearTimeout(soon);
+      stopTone();
+      stopTone = () => {}; // finish runs again in finally; a closed AudioContext throws on a second close
+      clearInterval(timer);
+      setElapsed(null);
+    };
     try {
       const res = await fetch("/api/load", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: target, live }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Could not load that page.");
       const t = data as TwinData;
+      finish();
+      if (mine !== seq.current) return;
+      const was = shown as Preview | null;
+      if (was && !t.nodes.length) {
+        // The parser found no sections (it knows MDPI's layout best): the preview is still the better page.
+        const line = `${VIA[t.source.via]}${took(t.source.ms)} Arc could not find sections in it, so the preview stays.`;
+        setStatus(line);
+        await sentenceEnd();
+        if (mine === seq.current) void speaker.say(["The full page came back, but Arc could not find sections in it. The preview stays."]);
+        return;
+      }
+      if (was) {
+        // Swap without yanking: wait for the sentence being spoken to end, keep the cursor on the same heading.
+        const at = cursorHeading.current;
+        await sentenceEnd();
+        if (mine !== seq.current) return;
+        const i = at && at !== was.source.title ? findNode(t.nodes, at) : -1;
+        setTwin(t);
+        setStatus(`${VIA[t.source.via]}${took(t.source.ms)}`);
+        if (t.nodes.length) setCursorTo({ id: t.nodes[Math.max(i, 0)].id, lines: [`The full ${video ? "outline" : "page"} is ready. ${counted(t)}.`] });
+        return;
+      }
       setTwin(t);
       setStatus(`${VIA[t.source.via]}${took(t.source.ms)}`);
-      void speaker.say([`${t.source.via === "cache" ? "Saved copy." : "Loaded."} ${t.source.title}.`, `${plural(t.counts.sections + t.counts.segments, t.counts.segments ? "part" : "section")}${t.counts.figures ? ` and ${plural(t.counts.figures, "figure")}` : ""}.`, "Use the arrow keys, or hold Space and ask."]);
+      void speaker.say([`${t.source.via === "cache" ? "Saved copy." : "Loaded."} ${t.source.title}.`, `${counted(t).replace(", ", " and ")}.`, "Use the arrow keys, or hold Space and ask."]);
       said(`Loaded ${t.source.title}.`);
     } catch (e) {
+      finish();
+      if (mine !== seq.current) return;
       const msg = e instanceof Error ? e.message : "Could not load that page.";
-      setStatus(`${msg} ${NEXT_STEP}`);
-      void speaker.say([`${/[.!?]$/.test(msg) ? msg : `${msg}.`}`.slice(0, 300), NEXT_STEP]);
+      const kept = shown as Preview | null;
+      setStatus(kept ? `${msg} Showing the preview from ${kept.from}.` : `${msg} ${NEXT_STEP}`);
+      void speaker.say([`${/[.!?]$/.test(msg) ? msg : `${msg}.`}`.slice(0, 300), kept ? "The preview stays on screen." : NEXT_STEP]);
     } finally {
-      ended = true;
-      clearTimeout(soon);
-      stopTone();
-      clearInterval(timer);
-      setElapsed(null);
+      finish();
     }
   }, []);
 
@@ -118,24 +196,70 @@ export default function Twin() {
     requestAnimationFrame(() => document.getElementById(`fig-${node.id}`)?.focus());
   }, []);
 
+  // Results stream in batches (OpenAlex first, usually under a second; then the Bright Data web search). The first batch
+  // is shown and read; later ones are appended below without moving the cursor or renumbering.
   const search = useCallback(async (query: string) => {
-    const res = await fetch("/api/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query }) }).catch(() => null);
-    const data = res?.ok ? ((await res.json().catch(() => null)) as { results?: Result[] } | null) : null;
-    if (!data?.results) {
+    const mine = ++seq.current;
+    const fail = () => {
       setStatus("Search is not available right now.");
       void speaker.say(["Search is not available right now."]);
-      return said("Search is not available right now.");
+      said("Search is not available right now.");
+    };
+    const res = await fetch("/api/search", { method: "POST", headers: { "content-type": "application/json", accept: "application/x-ndjson" }, body: JSON.stringify({ query }) }).catch(() => null);
+    if (!res?.ok || !res.body) return fail();
+    let total = 0;
+    let errored = false;
+    const take = (b: Batch) => {
+      if (mine !== seq.current) return;
+      if (!b.results) return void (errored = true);
+      const n = b.results.length;
+      if (!n) return;
+      const results = b.results;
+      const where = b.via === "openalex" ? "papers from OpenAlex open metadata" : b.via === "cache" ? "web results from a saved Bright Data search" : "web results through Bright Data";
+      if (!total) {
+        setTourId(null);
+        setFound({ query, results });
+        setStatus(`${plural(n, "result")} so far for ${query}: ${where}.`); // the status line stays short; the voice instructs
+        setCursorTo({ id: "r01", lines: [`${plural(n, "result")} so far for ${query}.`, "Use the arrow keys, or say open the first one."] }); // two clips: the short first one plays sooner
+      } else {
+        setFound((f) => f && { ...f, results: [...f.results, ...results] });
+        setStatus(`Added ${n} ${where}.`);
+      }
+      total += n;
+    };
+    try {
+      const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+      let buf = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += value;
+        for (let nl = buf.indexOf("\n"); nl >= 0; nl = buf.indexOf("\n")) {
+          take(JSON.parse(buf.slice(0, nl)) as Batch);
+          buf = buf.slice(nl + 1);
+        }
+      }
+    } catch {
+      errored = true;
     }
+    if (total || mine !== seq.current) return;
+    if (errored) return fail();
     setTourId(null);
-    setFound({ query, results: data.results });
-    const n = data.results.length;
-    const line = n ? `${plural(n, "result")} for ${query}. Use the arrow keys, or say open the first one.` : `No results for ${query}. Hold Space and try other words.`;
-    setStatus(n ? `${plural(n, "result")} for ${query}.` : `No results for ${query}.`); // the status line stays short; the voice instructs
+    setFound({ query, results: [] });
+    const line = `No results for ${query}. Hold Space and try other words.`;
+    setStatus(`No results for ${query}.`);
     said(line);
     void speaker.say([line]);
   }, []);
 
-  const open = useCallback((target: string) => void load(target, false), [load]);
+  // A result keeps its title and snippet so the preview has something to show even when the page itself is slow.
+  const open = useCallback(
+    (target: string) => {
+      const r = handlers.current.found?.results.find((x) => x.url === target);
+      void load(target, false, r && { title: r.title, snippet: r.snippet });
+    },
+    [load],
+  );
 
   // Commands for the page itself (typed, spoken, or from the one box); the cursor ones live in Reader.
   const handlers = useRef({ search, open, load, found, twin });

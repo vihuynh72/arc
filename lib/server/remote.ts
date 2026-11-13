@@ -135,3 +135,6 @@ export function remoteGo(url: string, target: RemoteTarget): Promise<RemoteShot>
 
 /** Opens the session and the page so the first real request is fast. */
 export const remoteWarm = (url: string) => queue(async () => void (await ready(url)));
+
+/** Connects the Bright Data browser at boot so the first live view does not pay the connect; a dead session reopens lazily on the next call. */
+export const remoteConnect = () => queue(async () => void (await session()));

@@ -1,8 +1,10 @@
-// POST {query} -> {results, via, ms}. Web search through the Bright Data Web Unlocker.
+// POST {query} -> web search through the Bright Data Web Unlocker, raced with OpenAlex open-access papers.
+// With `accept: application/x-ndjson` it streams one line per batch as each lands ({results, via, ms}); otherwise one merged JSON.
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import * as cheerio from "cheerio";
 import { unlock } from "@/lib/server/brightdata";
+import { searchPapers } from "@/lib/server/openalex";
 
 export const runtime = "nodejs";
 
@@ -51,26 +53,84 @@ const routes: [string, (q: string) => string, (h: string) => Hit[]][] = [
   ["unlocker:bing", (q) => `https://www.bing.com/search?q=${q}`, parseBing],
 ];
 
-export async function POST(req: Request) {
-  const t = Date.now();
-  const { query } = (await req.json().catch(() => ({}))) as { query?: string };
-  const q = query?.trim().slice(0, 200);
-  if (!q) return Response.json({ error: "Say what you want to search for." }, { status: 400 });
+type Batch = { results: Hit[]; via: string; ms: number };
 
+/** The Bright Data web results, from the disk cache when this query was searched before. */
+async function web(q: string, t: number): Promise<Batch> {
   const file = `.cache/search/${createHash("sha1").update(q.toLowerCase()).digest("hex")}.json`;
   const hit = await readFile(file, "utf8").catch(() => null);
-  if (hit) return Response.json({ ...JSON.parse(hit), via: "cache", ms: Date.now() - t });
-
+  if (hit) return { ...JSON.parse(hit), via: "cache", ms: Date.now() - t };
   for (const [via, url, parse] of routes) {
     try {
       const results = clean(parse(await unlock(url(encodeURIComponent(q)), { markdown: false }))).slice(0, 8);
       if (results.length < 3) continue;
       await mkdir(".cache/search", { recursive: true });
       await writeFile(file, JSON.stringify({ results, via }));
-      return Response.json({ results, via, ms: Date.now() - t });
+      return { results, via, ms: Date.now() - t };
     } catch {
       // try the next route
     }
   }
-  return Response.json({ error: "Search is not answering right now." }, { status: 502 });
+  throw new Error("web search failed");
+}
+
+async function papers(q: string, t: number): Promise<Batch> {
+  const found = await searchPapers(q, AbortSignal.timeout(4000));
+  const results = found.map((p) => ({
+    title: p.title,
+    url: p.url,
+    snippet: [[p.venue, p.year].filter(Boolean).join(", "), p.abstract.slice(0, 280)].filter(Boolean).join(". "),
+  }));
+  return { results: clean(results), via: "openalex", ms: Date.now() - t };
+}
+
+// One key per paper or page: the DOI when the link is one, else the bare address; titles too, since the same paper has many homes.
+const keys = (h: Hit) => {
+  const doi = /10\.\d{4,9}\/\S+/.exec(h.url)?.[0]?.toLowerCase();
+  const bare = h.url.replace(/^https?:\/\/(www\.)?/i, "").replace(/\/$/, "").toLowerCase();
+  return [doi ?? bare, h.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()];
+};
+
+export async function POST(req: Request) {
+  const t = Date.now();
+  const { query } = (await req.json().catch(() => ({}))) as { query?: string };
+  const q = query?.trim().slice(0, 200);
+  if (!q) return Response.json({ error: "Say what you want to search for." }, { status: 400 });
+
+  const seen = new Set<string>();
+  const fresh = (b: Batch): Batch => ({
+    ...b,
+    results: b.results.filter((h) => {
+      const k = keys(h);
+      if (k.some((x) => seen.has(x))) return false;
+      k.forEach((x) => seen.add(x));
+      return true;
+    }),
+  });
+  const jobs = [papers(q, t), web(q, t)];
+
+  if (!/ndjson/.test(req.headers.get("accept") ?? "")) {
+    const done = await Promise.allSettled(jobs);
+    const batches = done.flatMap((d) => (d.status === "fulfilled" ? [fresh(d.value)] : []));
+    if (!batches.length) return Response.json({ error: "Search is not answering right now." }, { status: 502 });
+    return Response.json({ results: batches.flatMap((b) => b.results), via: batches.map((b) => b.via).join("+"), ms: Date.now() - t });
+  }
+
+  const enc = new TextEncoder();
+  const body = new ReadableStream({
+    async start(ctl) {
+      let sent = 0;
+      await Promise.allSettled(
+        jobs.map((j) =>
+          j.then((b) => {
+            sent++;
+            ctl.enqueue(enc.encode(JSON.stringify(fresh(b)) + "\n"));
+          }),
+        ),
+      );
+      if (!sent) ctl.enqueue(enc.encode(JSON.stringify({ error: "Search is not answering right now." }) + "\n"));
+      ctl.close();
+    },
+  });
+  return new Response(body, { headers: { "content-type": "application/x-ndjson", "cache-control": "no-store" } });
 }
