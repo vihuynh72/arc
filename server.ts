@@ -2,6 +2,7 @@
 import { createServer } from "node:http";
 import next from "next";
 import { WebSocketServer } from "ws";
+import { attachVoice } from "./lib/server/live";
 
 try {
   process.loadEnvFile(".env.local");
@@ -19,10 +20,7 @@ app.prepare().then(() => {
   const server = createServer((req, res) => handle(req, res));
 
   const voice = new WebSocketServer({ noServer: true });
-  voice.on("connection", (ws) => {
-    ws.send(JSON.stringify({ type: "hello" }));
-    ws.on("message", (data, isBinary) => ws.send(data, { binary: isBinary }));
-  });
+  voice.on("connection", (ws) => attachVoice(ws));
 
   server.on("upgrade", (req, socket, head) => {
     if (new URL(req.url ?? "/", "http://localhost").pathname === "/ws/voice") {
