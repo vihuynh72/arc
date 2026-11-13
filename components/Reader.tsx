@@ -20,7 +20,7 @@ const parkEl = (el: HTMLElement, kind: string) => (kind === "figure" ? el : (el.
 
 export default function Reader({ items, paused, onTour }: Props) {
   const [index, setIndex] = useState(-1);
-  const [rate, setRate] = useState(1.5);
+  const [rate, setRate] = useState(1.25);
   useEffect(() => setRate(speaker.rate), []); // the saved speed (localStorage) is only known in the browser
   const ring = useRef<HTMLDivElement>(null);
   const readOnRef = useRef<(from?: number) => Promise<void>>(async () => {}); // moveTo is defined before readOn

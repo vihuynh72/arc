@@ -111,9 +111,9 @@ const SPEED = "arc-speed"; // the reading speed the user chose, kept like "arc-d
 const savedRate = () => {
   try {
     const v = Number(localStorage.getItem(SPEED));
-    return v >= 1 && v <= 2 ? v : 1.5;
+    return v >= 1 && v <= 2 ? v : 1.25;
   } catch {
-    return 1.5;
+    return 1.25;
   }
 };
 
