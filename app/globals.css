@@ -1538,3 +1538,10 @@ figure[data-node-id] {
 body:has([data-tour]) .arc-ring {
   opacity: 0 !important;
 }
+
+/* Pointer exploration note under the tour image: quiet, but readable. */
+[data-tour] section > small {
+  color: var(--muted, #534d46);
+  font-size: 0.9375rem;
+  line-height: 1.4;
+}

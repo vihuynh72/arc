@@ -19,7 +19,13 @@ For each stop:
 - says: ONE or two short plain sentences about that part. Do not use the words left, right, above, below, top, bottom (position is added by other code).
 - box_2d: [ymin, xmin, ymax, xmax] on a 0 to 1000 scale, tightly around the drawn structure itself, not just its text label.
 - confidence: "high" if you are sure of the box, "medium" or "low" otherwise.
-Also give title (a short name for the figure) and overview (two short sentences). Use only what is visible; do not guess.`;
+Also give title (a short name for the figure) and overview (two short sentences). Use only what is visible; do not guess.
+
+If the figure is a chart or plot (line, bar, scatter, signals, matrix), the student needs the data and the message, not the look:
+- overview: the takeaway in one or two sentences: the kind of chart, what is compared, and the main finding with numbers.
+- stops in this order: one per axis (what it measures, units, range); the legend (how many series, their names); then ONE per series, named by its legend label or what it shows, never by colour alone (colour only as a second cue), giving its start value, its highest and lowest points and where they occur, and its trend, as numbers read from the chart with "about"; with two or more series always one comparing them (which is higher, where they cross or part), and say how many times a repeating pattern occurs; then anything unusual (outlier, gap, shaded region, a pattern that repeats, with its count). Chart stops may use up to three short sentences.
+- If a value cannot be read reliably, say so in that stop and set its confidence to "low"; never invent numbers. If the chart has no axes, legend or numbers, say so once in the overview and skip those stops (never a stop for a part that is not drawn).
+- boxes: a thin strip along each axis (its tick numbers and title), never across the plot area; around the legend; and around the stretch of each series or the region where it peaks.`;
 
 const SCHEMA = {
   type: "OBJECT",

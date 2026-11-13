@@ -345,3 +345,19 @@ export function answerText(id: string, ms = 15000): Promise<string | null> {
     check();
   });
 }
+
+/** A short quiet tick (about 60 ms) on the page's AudioContext: pointer exploration marks the picture's edges with it. */
+export function tick(hz: number) {
+  if (paused) return;
+  ctx ??= new AudioContext();
+  if (ctx.state === "suspended") ctx.resume().catch(() => {});
+  const t = ctx.currentTime;
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  o.frequency.value = hz;
+  g.gain.setValueAtTime(0.05, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
+  o.connect(g).connect(ctx.destination);
+  o.start(t);
+  o.stop(t + 0.06);
+}
