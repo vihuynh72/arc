@@ -1,115 +1,156 @@
 # Arc
 
-Learn the page one sweep at a time.
+**Learn the page one sweep at a time.**
 
-## What Arc is
+Arc is a study tool for blind and low-vision students. Paste a link to a paper, a PDF or a lecture video and Arc rebuilds it as a page you can *hear*, then takes you through the parts other tools skip: the figures, the charts, the formulas and what is written on the board. You steer it with a few keys or your voice.
 
-Arc is for blind and low-vision students who study from public web pages. It rebuilds a study page as a simple accessible "twin" with real headings, reads it aloud, and glides a cursor ring from section to section. For a figure, it gives a guided tour: a spoken direction such as "Move far down and to the left", a soft chime, and the name of each part. A live panel shows the original page in a remote browser, following the cursor. It is read-only and never clicks.
+![Arc touring a figure: its own pointer rings one part while it says where that part is](docs/media/figure-tour.jpg)
 
-## How to use it
+## Why
 
-There is one input box. Paste a link, or say or type what you want. Three things to learn:
+Ask a screen reader about a research figure and you often get one word: *"image."*
 
-1. Hold Space anywhere and speak (in the box too, while it is empty). Or press the backquote key (`) once to start and again to send; it works even in a box with text.
-2. Arrow keys move the cursor.
-3. Escape stops speech.
+At least 2.2 billion people live with a vision impairment ([WHO](https://www.who.int/news-room/fact-sheets/detail/blindness-and-visual-impairment)), and the tools they are handed were built for text. But learning does not live only in text. It lives in the figure, the chart, the lecture and the formula, which is exactly where those tools go quiet. Arc starts there.
 
-Example requests: paste `https://www.mdpi.com/1424-8220/24/6/1935`; "find me a paper about knee rehabilitation"; "take me to the results"; "start the tour of figure 1"; "what does the belt unit contain?". A YouTube link becomes an outline of what is said and what is shown on screen.
+## What it does
 
-## Works on the page you are already on
+| | |
+|---|---|
+| **A figure, toured part by part.** Arc moves a pointer to each part, rings it, and says where it is and what it does: *"Top right: belt. It holds an IMU, an MCU, an RF module and a BLE module."* Or move your own pointer and Arc tells you what is under it. | **A chart, heard as a curve.** Sweep across a chart and a tone rises and falls with the line. Then Arc reads the real numbers, computed in code from the chart's data. |
+| **A lecture, with what is on screen.** Arc plays a YouTube or Khan Academy lecture and, in the gaps between the teacher's sentences, says what is on the board. | **A PDF, by voice.** *"Go to the Attention section."* Formulas are spoken as math: *"Attention of Q, K, V equals softmax of Q times K transpose over the square root of d sub k, times V."* |
+| **No link? Just say what you want to learn.** *"I want to study biology"* gets a short narrowing question, then results read aloud. | **Ask the page anything.** Hold Space and ask. Arc answers from the page and says so when the page does not have the answer. |
 
-A student does not have to copy a link.
+It also reads pages behind a school login (Canvas and others) from your own browser, without ever seeing your password, and it has display profiles for low vision. See [private pages](docs/private-pages.md) and [display profiles](docs/display-profiles.md).
 
-- **The Arc extension** (`extension/`, Chrome, no build step): on any page, press Alt+Shift+A. It sends the open tab's HTML, only to the Arc server you set, and Arc opens the twin, read from your own tab (`/api/ingest`). Nothing is fetched again, so it works on pages behind your own login, such as a course site. See `extension/README.md` to load it unpacked in a minute. Not yet tested as an installed extension.
-- **A bookmarklet**, no install: `javascript:location.href='http://localhost:3000/?url='+encodeURIComponent(location.href)` (public pages only, since Arc fetches the link itself).
-- **Deep links**: `/?url=<link>` loads a page on open, `/?q=<request>` runs a request such as a search, `/?doc=<id>` opens a page the extension sent.
-
-## Display profiles
-
-For students who have some vision but for whom one fixed look does not work. Press **Display** in the header, or say or type "bigger text", "high contrast", "too bright", "I have dyslexia", "turn on the focus line", "reset display". Five ready-made profiles (Default, Low vision, Light sensitive, Dyslexia friendly, Narrow field of view) are starting points; under "More options" each setting (colours, text size 100 to 200%, spacing, typeface, focus line, motion) can be changed on its own, and they combine. The choice is kept in this browser only.
-
-These profiles are built from published guidance, not from testing with people who have these conditions.
-
-| Need | What the guidance says | What Arc does |
-| --- | --- | --- |
-| Low acuity, central loss | Some people need larger text; avoid horizontal scrolling at 400% zoom ([W3C low vision](https://www.w3.org/TR/low-vision-needs/), [WCAG 1.4.4, 1.4.10](https://www.w3.org/TR/WCAG22/)) | Text 125/150/200% from the root; from 150% one column and no sticky bars; Atkinson Hyperlegible, designed by the Braille Institute for low vision ([source](https://github.com/googlefonts/atkinson-hyperlegible)) |
-| Light sensitivity, glare | Bright light from a screen stops some people reading ([W3C 3.1.1](https://www.w3.org/TR/low-vision-needs/)); pure white on black can halo (design guidance, not clinical: [BOIA](https://www.boia.org/blog/dark-mode-can-improve-text-readability-but-not-for-everyone)) | Low glare dark: warm grey, no pure white, body text 11:1, images dimmed until looked at |
-| Low contrast sensitivity | Contrast 7:1 for text ([WCAG 1.4.6](https://www.w3.org/TR/WCAG22/)); 3:1 for controls ([1.4.11](https://www.w3.org/TR/WCAG22/)) | High contrast light and dark; every theme keeps text 7:1+, ring and borders 3:1+ (ratios in app/profiles.css) |
-| Dyslexia | Dark text on a light, not white, background; sans serif; avoid italics and capitals; 1.5 line spacing ([BDA](https://www.bdadyslexia.org.uk/advice/employers/creating-a-dyslexia-friendly-workplace), [Dyslexia Scotland](https://dyslexiascotland.org.uk/dyslexia-friendly-typed-formats)); special "dyslexia fonts" showed no gain in rate or accuracy ([Wery and Diliberto 2017](https://pmc.ncbi.nlm.nih.gov/articles/PMC5629233/)) | Soft cream, WCAG 1.4.12 spacing, shorter lines, upright text, sentence case labels, a legible sans (not a dyslexia font) |
-| Narrow field, tracking | Long lines are harder; losing your place is hard to recover ([W3C 3.2.3, 3.6.1](https://www.w3.org/TR/low-vision-needs/)) | Focus line: everything but the item under the reading cursor is dimmed, the current item gets a band; narrower column |
-
-## Under the hood
-
-1. You hold Space. Chrome's speech recognition supplies words while the key is held.
-2. SubQ Snap gets those words and the page's list of headings and figures.
-3. Snap returns a command, a target and probabilities. Arc acts only at 60% confidence or more.
-4. Below that, Gemini answers or asks what you meant.
-5. Plain code turns the command into a cursor move and its spoken direction.
-6. The voice speaks and the cursor ring moves.
-
-In scripted tests the cursor moved 140 to 440 ms after key release, against about 1.5 s when waiting for the Gemini Live transcript. Real-voice timing has not been measured yet.
-
-### Which model does what, and why
-
-| Piece | Job | Why |
+| The start page | A formula in a PDF | A lecture |
 |---|---|---|
-| Bright Data | Search, page fetch (Web Unlocker), live page view (Browser API) | Some pages block plain requests |
-| Gemini Live (`gemini-3.8-live`) | Speech to text, tour speech, spoken answers | One voice connection, relayed by the server |
-| Gemini vision (`gemini-3.5-flash-lite`) | Tours for unprepared figures, video outlines | Reads images and video |
-| SubQ Snap (`subq-snap-1.2`) | Request to command and target | Median 189 ms direct; 9 of 10 test requests correct |
-| Kokoro (`af_bella`, local) | Reads the page, confirms moves | Open source, about 2.5x real time on a laptop |
-| Plain code | Parsing, ids, counts, spatial directions | Must be exact |
+| ![Arc's start page](docs/media/landing.jpg) | ![A PDF formula under the reading cursor, with its spoken form](docs/media/pdf.jpg) | ![A lecture with the on-screen picture and its description](docs/media/lecture.jpg) |
 
-## Live data
+## Try it in five minutes
 
-Every page and search is fetched live. A page or search fetched before is shown at once as a first view, said to be a saved copy, and replaced by the live one when it arrives (the two prepared demo pages in `fixtures/` too). Audio clips, model outputs for the same text or image, and the Kokoro model stay cached, because they are derived from the live content and are not page data. `ARC_OFFLINE=1` (for a room with no network) serves stored copies only and makes no live fetch.
-
-## Run it locally
+You need [Node.js](https://nodejs.org) 22 or newer and Chrome or Edge.
 
 ```bash
+git clone https://github.com/vihuynh72/arc.git
+cd arc
 npm install
-npm run dev                  # http://localhost:3000
-npm run build && npm start
+cp .env.example .env.local   # then fill in the keys (below)
+npm run dev                  # open http://localhost:3000
 ```
 
-Set these in `.env.local`: `BRIGHTDATA_API_TOKEN`, `BRIGHTDATA_UNLOCKER_ZONE`, `BRIGHTDATA_BROWSER_WSS`, `GEMINI_API_KEY`, `SUBQ_API_KEY`. The Kokoro model downloads on first use.
+Then paste a link and press Enter, or hold **Space** and say what you want to study. The start page also has one-click examples.
+
+**Keys you need** (put them in `.env.local`, which is never committed):
+
+| Key | What Arc uses it for |
+|---|---|
+| `GEMINI_API_KEY` | Understanding requests, answering questions aloud, describing figures, PDF pages and video ([get one](https://aistudio.google.com/apikey)) |
+| `BRIGHTDATA_API_TOKEN` and its zones | Fetching pages that block ordinary requests, a remote browser, and search ([Bright Data](https://brightdata.com)) |
+
+**No keys yet?** Run `ARC_OFFLINE=1 npm run dev` and open the example paper. The bundled demo paper and its prepared figure tour work with no keys at all, read by the local voice. New links, search and spoken questions need the keys.
+
+The reading voice (Kokoro) runs on your own machine. It downloads once, a few hundred megabytes, the first time something is read.
+
+## How to drive it
+
+Everything can be done by key or by voice. Arc speaks for itself, so turn your screen reader off while you use it.
+
+| To do this | Press | Or say |
+|---|---|---|
+| Read on, one part at a time | `Down` / `Up` | "next", "go back" |
+| Jump by heading, figure, table, equation | `H`, `F`, `T`, `E` | "next heading", "go to figure 3" |
+| Go to a section or page | | "go to the results", "section 3.2", "page 9" |
+| Tour a figure | `Enter` on the figure | "tour this figure" |
+| In a tour: pause, step, leave | `P`, arrows, `Escape` | "hold on", "next", "that's enough" |
+| Hear it again | `R` | "say that again" |
+| Faster or slower | `Cmd` or `Ctrl` + `Right` / `Left` | "faster", "slower" |
+| Find a word | | "find sampling rate", then "next one" |
+| Where am I? What is left? | | "where am I", "how much is left", "contents" |
+| Ask a question | hold `Space` and speak | |
+| Type instead | `/` | |
+| Stop the voice | `Escape` | "stop" |
+| Help | `?` | "help" |
+
+The most basic commands also work in Spanish, French, German and Vietnamese ("siguiente", "arrête", "hilfe", "tiếp theo").
+
+## How it works
+
+```mermaid
+flowchart LR
+    L[A link, a PDF<br/>or a wish] --> B[Bright Data<br/>reaches the page]
+    B --> C[Plain code<br/>rebuilds its structure]
+    C --> T[(The twin:<br/>a page you can hear)]
+    T --> K[Kokoro<br/>reads it aloud]
+    G[Gemini] -. describes figures,<br/>PDF pages, video .-> T
+    G -. understands requests,<br/>answers questions .-> K
+    H[Chrome helper] -. your own<br/>course pages .-> C
+```
+
+| Piece | Its job | Why this piece |
+|---|---|---|
+| **Bright Data** | Fetches the page (Web Unlocker), runs a remote browser for pages that need one, and searches | Many study pages block ordinary requests |
+| **Plain code** | Parses the page into headings, paragraphs, figures, tables and equations; computes every id, count and spoken direction | Structure must be exact, so no model touches it and nothing is invented |
+| **Gemini** | Looks at figures, PDF pages and lecture video; decides what a spoken request means in about a third of a second; answers questions aloud, live | It sees what code cannot read |
+| **Kokoro** | The reading voice, open source, running on the same machine as Arc | Free, private and fast |
+| **Next.js** | The app: one Node process serving the pages and the voice socket | Long-lived connections, so nothing here is serverless |
+| **Chrome helper** (`extension/`) | Reads a signed-in course page in your own browser and hands Arc only that page | Arc never gets a password, cookie or token |
+
+A few rules the code holds itself to: a student is never left in silence; Arc acts on a spoken request only when it is confident, and otherwise asks; numbers spoken about a chart are computed in code from validated points; and on a quiz, Arc reads the questions but never gives, hints at or confirms an answer.
+
+## Privacy
+
+- No accounts, no logins, no stored student data.
+- Private pages and uploaded PDFs live in the server's memory only, for about two hours, never on disk, in an address or in a log.
+- A hosted copy keeps no recordings or transcripts of what visitors ask.
+
+Details: [private pages](docs/private-pages.md).
+
+## Running it for other people
+
+Arc has a spend guard (every paid call is counted in dollars and Arc degrades gracefully as the day's budget runs out) and per-visitor limits. Both turn on in production. Everything about hosting, the voice options and every setting is in [docs/deploy.md](docs/deploy.md).
 
 ## Project layout
 
-`app/` pages and API routes, `components/` the twin and tour, `lib/` shared code (`server/`, `client/`, `parse/`), `fixtures/` saved demo pages and hand-checked tours, `scripts/checks/` offline checks. Open first:
+```
+app/          pages and API routes
+components/   the reading view, figure tours, the lecture player, the landing page
+lib/          shared code: parse/ (page to twin), server/ (fetching, models, guards), client/ (voice, commands)
+extension/    the Arc helper for Chrome (no build step)
+fixtures/     the bundled demo pages and their hand-checked tours
+scripts/      offline checks, the end-to-end suite, the simulated-student harness
+server.ts     one Node process: Next plus the /ws/voice relay
+```
 
-- `server.ts`: one Node process for Next and `/ws/voice`
-- `lib/types.ts`: the shared type contract
-- `lib/models.ts`: model and voice names
-- `lib/cues.ts`: spatial directions
-- `lib/parse/html.ts`: any page's HTML to twin; `lib/parse/markdown.ts`: MDPI markdown to twin
-- `lib/server/decide.ts`: the Snap call and the 60% rule
-- `lib/server/live.ts`: Gemini Live relay
-- `lib/server/fetch.ts`: the saved copy as a first view, then the live page: a plain fetch, then Web Unlocker
-- `lib/server/remote.ts`: Browser API remote view
-- `lib/client/voice.ts`: hold-Space voice
+Good files to open first: `lib/types.ts` (the shared data model), `lib/intent.ts` (the local command grammar), `lib/server/decide.ts` (the decision model), `lib/server/safeFetch.ts` (the one guard every outbound fetch goes through) and `components/FigureTour.tsx`.
 
 ## Checks
 
-`npm run selfcheck` runs every file in `scripts/checks/`, offline: spatial directions, the Snap act-or-ask rules, the saved-copy fetch, parsing (ids, counts, captions, credit line) and the prepared figure tours.
+```bash
+npm run selfcheck   # 46 offline check files: parsing, commands, tours, security rules. No keys, no network.
+npm run e2e         # 18 scenarios in a headless Chrome against a running app. Offline by default; spends nothing.
+npm run lint
+```
 
-## How it was built
+`scripts/intent-eval.ts` measures how well Arc understands natural requests: 798 phrasings across nine situations, including long, polite and non-native ones.
 
-One person, one day, a team of AI coding agents: a "software factory". One orchestrating session wrote a shared type contract and, for each task, a brief with acceptance checks. About a dozen agents (Claude Opus for the hard pieces, Claude Sonnet for the rest) built pieces in parallel against one dev server, each owning named files. Every piece had to pass its own offline check and a real-browser test before it was committed.
+## Where it stands, and how to help
 
-## Limits and what is next
+Arc started at a one-day hackathon and has been rebuilt since. So far it has been exercised by simulated students (`scripts/blind/`): agents that use Arc only by keys and voice and judge it only by what they hear.
 
-- Not yet tested with blind users or with a screen reader running.
-- Twins work beyond MDPI: any page is fetched directly first (Wikipedia, OpenStax and a Cloudflare blog post load in 0.3 to 0.7 s), then through Bright Data's Unlocker, and parsed by one generic HTML parser. Verified from the server on Wikipedia, OpenStax and a blog article; the extension path was tested with Wikipedia's HTML. Pages drawn by scripts (Khan Academy) and PubMed Central fetched from the server (it now answers with a captcha, and Bright Data refuses it) do not load; the extension reads them from the student's tab instead.
-- The live page panel still understands MDPI's page structure best.
-- Video outlines are YouTube only, about 10 minutes at most.
-- Tour boxes for unprepared figures are model-made and can be wrong; they show only at high model confidence. Prepared demo tours are hand-checked.
-- The fast voice path uses Chrome's speech recognition.
+**If you are blind or have low vision, or you teach students who are, your feedback is the most valuable contribution this project can get.** Open an issue and tell us what worked and what did not.
 
-Next: testing with blind and low-vision students, more page layouts in the live view, real-voice timing.
+Other good places to help:
 
-## Credits
+- Arc's own spoken lines are English only; pages in other languages are read in their language, but Arc's prompts are not translated yet.
+- More page layouts, more lecture sites, and better figure placement on diagrams it has not seen.
+- Testing alongside real screen readers and in Safari and Firefox.
 
-Demo page: "Development of Wearable Devices for Collecting Digital Rehabilitation/Fitness Data from Lower Limbs", Sensors 2024, 24(6), 1935, MDPI, CC BY 4.0. https://www.mdpi.com/1424-8220/24/6/1935
+## Credits and licences
 
-Demo video for the outline feature: a Khan Academy video (CC BY-NC-SA).
+Arc's own code is released under the [MIT licence](LICENSE).
+
+- Demo paper: "Development of Wearable Devices for Collecting Digital Rehabilitation/Fitness Data from Lower Limbs", Sensors 2024, 24(6), 1935, MDPI, [CC BY 4.0](https://www.mdpi.com/1424-8220/24/6/1935).
+- Demo lecture: Khan Academy, "Reading pie graphs" (CC BY-NC-SA).
+- The reading voice is [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M) (Apache-2.0) through kokoro-js. Voices for some other languages use Piper models and **eSpeak NG, which is GPL-3.0**: if you redistribute Arc together with that component, its licence applies to it.
+- Built with Google Gemini, Bright Data and Next.js.
+- The screenshots in `docs/media/` show the demo paper's figure, a Khan Academy lecture frame and a page of "Attention Is All You Need" (arXiv:1706.03762); that material belongs to its authors and stays under its own terms.
