@@ -75,7 +75,7 @@
   {
    "n": 6,
    "label": "smartphone app",
-   "says": "Motion data from the belt arrives here. The app turns it into a rehabilitation plan.",
+   "says": "Motion data from the belt arrives here. Inside the app, boxes read AI algorithms, then rehabilitation prescription, then UI.",
    "box_2d": [
     601,
     830,

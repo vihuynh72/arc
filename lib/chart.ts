@@ -38,7 +38,7 @@ export interface RawChart {
 export const CHART_TYPES = ["line", "bar", "stacked_bar", "histogram", "scatter", "pie", "box", "heatmap"];
 type BoxStat = { label: string; min: number; q1: number; median: number; q3: number; max: number };
 type Cell = { row: string; col: string; value: number };
-type Slice = { label: string; value: number; printed: boolean; note: string; box: Box };
+type Slice = { label: string; value: number; printed: boolean; note: string; box: Box; mid: number }; // mid: the wedge's middle, in turns clockwise from 12 o'clock
 type Bars = { categories: string[]; series: { name: string; color?: string; values: (number | null)[] }[]; stacked: boolean; totals: number[]; approx: boolean[]; pos: number[] };
 export type CleanChart = Chart & { legend: Box | null; boxes?: BoxStat[]; cells?: Cell[]; slices?: Slice[]; bars?: Bars };
 
@@ -166,7 +166,7 @@ export function cleanChart(raw: RawChart): CleanChart | null {
           const share = p.v! / total;
           const box = wedgeBox(pie, at, at + share);
           at += share;
-          return { label: p.label, value: keep ? p.v! : share * 100, printed: keep, note: p.note, box };
+          return { label: p.label, value: keep ? p.v! : share * 100, printed: keep, note: p.note, box, mid: at - share / 2 };
         })
       : [];
     out.series = out.slices.length ? [{ name: "Slices", points: out.slices.map((p, k) => ({ x: k, y: p.value, label: p.label })) }] : [];
@@ -447,15 +447,22 @@ function barRank(c: Chart, s: Series): string {
 }
 
 const WORDS = 15;
-/** One sentence cut to 15 words: at the last clause boundary before the limit, else at the 15th word. */
+const MAX_WORDS = 30;
+/** A sentence over 15 words is cut only where a clause ends (comma, semicolon, colon), never at a word count or at "and": a cut
+ * mid-clause read as "January is the best month, while June." With no clause end early enough, the first one after the 15th
+ * word (up to 30 words), else the sentence whole. */
 function shorten(s: string): string {
   const w = s.trim().split(/\s+/);
   if (w.length <= WORDS) return s.trim();
+  const full = w.join(" ");
   const head = w.slice(0, WORDS).join(" ");
-  const cut = Math.max(head.lastIndexOf(", "), head.lastIndexOf("; "), head.lastIndexOf(": "), head.lastIndexOf(" and "), head.lastIndexOf(" which "));
-  const out = cut > head.length / 3 ? head.slice(0, cut) : head;
-  // Never end on a dangling little word ("rose steadily to a.").
-  return `${out.replace(/[\s,;:]+$/, "").replace(/(\s+(a|an|the|to|of|over|in|at|on|and|or|with|for|by|from|as|its|their))+$/i, "")}.`;
+  const ends = [", ", "; ", ": "];
+  let cut = Math.max(...ends.map((e) => head.lastIndexOf(e)));
+  if (cut <= head.length / 3) {
+    const later = ends.map((e) => full.indexOf(e, head.length)).filter((i) => i > 0);
+    cut = later.length && full.slice(0, Math.min(...later)).split(" ").length <= MAX_WORDS ? Math.min(...later) : -1;
+  }
+  return cut > 0 ? `${full.slice(0, cut).replace(/[\s,;:]+$/, "")}.` : s.trim();
 }
 /** At most two sentences of at most 15 words each (the owner, listening: "two sentences max ... short, straight to point"). */
 export function brief(t: string): string {
@@ -486,7 +493,9 @@ function stopsTour(c: CleanChart, info: Info, source: string): Tour | null {
     what = `A pie chart with ${sl.length} slices`;
     add("Main finding", takeaway || info.title, [0, 0, 1000, 1000], "high");
     add("Slices", `Largest: ${list(sl.slice(0, 2).map((p) => `${p.label}, ${pct(p)}`))}.`);
-    sl.forEach((p, k) => add(p.label, `${cap(pct(p))}${k === 0 ? ", the largest slice" : k === sl.length - 1 ? ", the smallest slice" : ""}.${p.note ? ` Also printed: ${p.note.replace(/\.+$/, "")}.` : ""}`, p.box, p.printed ? "high" : "medium"));
+    // Where a slice is, as on a clock face: "left" and "down" mean nothing on a circle.
+    const hour = (p: Slice) => `at about ${Math.round(p.mid * 12) % 12 || 12} o'clock`;
+    sl.forEach((p, k) => add(p.label, `${cap(pct(p))}${k === 0 ? ", the largest slice" : k === sl.length - 1 ? ", the smallest slice" : ""}, ${hour(p)}.${p.note ? ` Also printed: ${p.note.replace(/\.+$/, "")}.` : ""}`, p.box, p.printed ? "high" : "medium"));
   } else if (c.type === "box") {
     const inOrder = c.boxes ?? [];
     const bx = [...inOrder].sort((a, b) => b.median - a.median);

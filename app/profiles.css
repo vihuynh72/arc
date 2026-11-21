@@ -86,7 +86,6 @@ kbd,
 figure,
 figure img,
 .arc-live,
-.landing-demo,
 [data-tour] section > p {
   background: var(--card);
 }
@@ -95,8 +94,7 @@ button:hover {
 }
 header > .ask > button:hover,
 header > button:hover,
-.actions button[type="submit"]:hover,
-.reader-buttons button:nth-child(-n + 2):hover {
+.actions button[type="submit"]:hover {
   background: color-mix(in srgb, var(--ink) 85%, var(--bg));
 }
 header button[aria-pressed="true"] {
@@ -113,10 +111,7 @@ header button[aria-pressed="true"] {
 }
 .arc-ring {
   mix-blend-mode: var(--ring-blend);
-  background: color-mix(in srgb, var(--ring) 12%, transparent);
-  box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--ring) 20%, transparent),
-    0 0 32px 6px color-mix(in srgb, var(--ring) 35%, transparent);
+  background: color-mix(in srgb, var(--ring) 16%, transparent);
 }
 [data-tour] section > div:first-child > div[aria-hidden="true"] {
   background: color-mix(in srgb, var(--ring) 10%, transparent);
@@ -124,12 +119,6 @@ header button[aria-pressed="true"] {
     0 0 0 3px var(--bg),
     0 0 0 6px color-mix(in srgb, var(--ring) 25%, transparent),
     0 0 28px 6px color-mix(in srgb, var(--ring) 45%, transparent) !important;
-}
-.landing-demo i {
-  background: color-mix(in srgb, var(--ring) 8%, transparent);
-}
-.landing-demo span:nth-child(1)::before {
-  background: var(--hair);
 }
 
 /* High contrast: thicker borders, links always underlined, a heavier ring. */
@@ -141,8 +130,14 @@ header button[aria-pressed="true"] {
   text-decoration-thickness: 2px;
 }
 :root:is([data-theme="contrast"], [data-theme="contrast-dark"]) .arc-ring {
-  border-width: 6px;
-  box-shadow: 0 0 0 3px var(--bg);
+  border-left-width: 16px;
+  background: color-mix(in srgb, var(--ring) 22%, transparent);
+  outline: 3px solid var(--ring);
+  outline-offset: -3px;
+}
+:root:is([data-theme="contrast"], [data-theme="contrast-dark"]) [data-speaking] {
+  background: color-mix(in srgb, var(--ring) 45%, transparent);
+  text-decoration-thickness: 4px;
 }
 
 /* Low glare: images are the brightest thing on a dark page, so dim them until they are looked at. */
@@ -218,7 +213,7 @@ header button[aria-pressed="true"] {
 :root[data-spacing="wide"] #content {
   max-width: var(--measure);
 }
-:root[data-spacing="wide"] :is(em, i, cite, figcaption strong, .landing-try li) {
+:root[data-spacing="wide"] :is(em, i, cite, figcaption strong) {
   font-style: normal !important;
 }
 /* Tracked capital micro-labels read as sentence case at a readable size. */
@@ -266,9 +261,6 @@ header button[aria-pressed="true"] {
 
 :root[data-motion="reduce"] :is(.arc-ring, [data-tour] section > div:first-child > div[aria-hidden="true"]) {
   transition: none !important;
-}
-:root[data-motion="reduce"] .landing-demo i {
-  animation: none;
 }
 :root[data-motion="reduce"] * {
   scroll-behavior: auto !important;
@@ -353,6 +345,15 @@ header > .display {
     background: transparent !important;
     box-shadow: none !important;
     mix-blend-mode: normal;
+    forced-color-adjust: none;
+  }
+  .arc-ring {
+    outline: 3px solid Highlight;
+    outline-offset: -3px;
+  }
+  [data-speaking] {
+    background: Highlight;
+    color: HighlightText;
     forced-color-adjust: none;
   }
   :focus-visible {

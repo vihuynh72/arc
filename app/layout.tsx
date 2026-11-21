@@ -23,6 +23,14 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <script dangerouslySetInnerHTML={{ __html: BOOT }} />
       </head>
       <body>
+        {/* For a screen reader in browse mode only: never focused, never in an aria-live region, and Arc's voice reads the page's
+            twin, not this. Keys checked against the vendors' guides (Apple VoiceOver, NV Access NVDA, Freedom Scientific JAWS). */}
+        <p className="sr-only">
+          Arc reads aloud in its own voice, so you may want your screen reader&apos;s speech off while you use it: in VoiceOver,
+          Command F5 turns VoiceOver off; in NVDA, press NVDA plus S until speech is off; in JAWS, press Insert plus Space, then S,
+          until speech is muted. Then press question mark for Arc&apos;s keys; in NVDA or JAWS, first press NVDA plus Space or
+          Insert plus Z, so the keys reach Arc.
+        </p>
         <a className="skip" href="#content">
           Skip to the page
         </a>

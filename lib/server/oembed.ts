@@ -1,4 +1,5 @@
 // YouTube link handling and oEmbed (public, no key). Callers: app/api/preview/route.ts (youtubeOembed), lib/server/video.ts (all).
+import { cleanTitle } from "../parse/title";
 
 /** The 11-character video id of any YouTube link form (watch?v=, youtu.be/, /shorts/, /embed/, /live/, /v/; m., music., www.); null otherwise. */
 export function youtubeId(link: string): string | null {
@@ -24,5 +25,5 @@ export async function youtubeOembed(url: string, signal: AbortSignal): Promise<{
   const res = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(id ? youtubeCanonical(id) : url)}&format=json`, { signal });
   if (!res.ok) return null;
   const d = (await res.json()) as { title?: string; author_name?: string };
-  return d.title ? { title: d.title, author: d.author_name ?? "" } : null;
+  return d.title ? { title: cleanTitle(d.title), author: d.author_name ?? "" } : null;
 }

@@ -1,226 +1,127 @@
-import LandingMotion from "@/components/landing/Motion";
-import {
-  ChartArt,
-  FigureArt,
-  TextArt,
-  VideoArt,
-} from "@/components/landing/Vignettes";
+import Seen from "@/components/landing/Seen";
+import Show from "@/components/landing/Show";
+import Spectrum from "@/components/landing/Spectrum";
+import { ARC, TODAY } from "@/components/landing/scenes";
+import { GREETING } from "@/lib/keys";
 
-// What Arc shows when nothing is loaded. Static; rendered by the empty branch in components/Twin.tsx.
-// The one box stays in the header above, so the first form control is still the command box.
-// The example links use the deep links Twin already reads (?url=); lib/intent.ts opens the same pages by voice.
-const PAPER = "/?url=https%3A%2F%2Fwww.mdpi.com%2F1424-8220%2F24%2F6%2F1935";
-const VIDEO = "/?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DEPvd-3712U8";
-const TEXTBOOK =
-  "/?url=https%3A%2F%2Fopenstax.org%2Fbooks%2Fanatomy-and-physiology-2e%2Fpages%2F17-9-the-endocrine-pancreas";
+// What Arc shows when nothing is loaded; rendered by the empty branch in components/Twin.tsx. The one box stays in the header
+// above, so the first form control is still the ask box. Four movements: what Arc is, what blind students get today (quoted from
+// the demo paper, lecture and PDF as published), the same material in Arc, and what does the work. The moving parts are
+// components/landing/*; they are silent and hidden from Arc's own speech. Styles: app/landing.css.
 
-const STATIONS = [
-  {
-    role: "You speak",
-    name: "Gemini Live",
-    num: "live",
-    job: "\u201cFind a paper about knee rehabilitation.\u201d Gemini transcribes while you speak.",
-    more: "Gemini Live carries speech in and out over one live session, so Arc hears you as you talk.",
-  },
-  {
-    role: "Decides",
-    name: "SubQ Snap",
-    num: "0.2 s",
-    job: "Decides the command in about 0.2 s, and only acts when it is sure.",
-    more: "A decision model. It returns a probability for every option, so Arc can refuse to guess.",
-  },
-  {
-    role: "Finds the page",
-    name: "Bright Data",
-    num: "< 2 s",
-    job: "Searches the web, first results in under 2 s, and fetches pages that block plain requests: a blocked paper in about 11 s, a preview readable in under 1 s. Follows the real page live.",
-    more: "Search, page fetch, and a live remote browser. Used wherever a site blocks plain requests.",
-  },
-  {
-    role: "Sees and answers",
-    name: "Gemini",
-    num: "1 s",
-    job: "Looks at figures and charts, outlines videos (4.5 minutes in about 6 s), and speaks tours and answers, which begin in about 1 s.",
-    more: "Gemini Live for speech in and out, vision for figures and charts, long video understanding.",
-  },
-  {
-    role: "Reads aloud",
-    name: "Kokoro",
-    num: "free",
-    job: "A free local voice reads the page.",
-    more: "Runs on the laptop, costs nothing per sentence.",
-  },
+const KEYS: [string[], string][] = [
+  [["↓", "↑"], "Next and previous paragraph."],
+  [["H"], "Next heading."],
+  [["F"], "Next figure."],
+  [["Enter"], "On a figure: start its tour. It plays by itself; the arrow keys take over."],
+  [["Space"], "Hold it and say what you want, or ask a question."],
+  [["/"], "Type instead."],
+  [["Cmd", "→"], "Read faster; with the left arrow, slower. Ctrl on Windows."],
+  [["Esc"], "Go back."],
+];
+
+const STEPS = [
+  ["Fetch", "A plain request first. When a page blocks it, Bright Data’s Web Unlocker gets the page.", "mdpi.com/1424-8220/24/6/1935"],
+  ["Parse", "Plain code finds the headings, paragraphs and figures. Ids, counts and order never come from a model.", "23 sections, 22 figures"],
+  ["Ask the model", "Gemini is asked only for what code cannot know: what a figure shows, a chart’s values, what a lecture has on screen.", "Figure 1: 6 stops"],
+  ["Speak", "Kokoro reads the page aloud. Gemini Live hears a spoken question and answers it.", "“1 Introduction”"],
+];
+
+const STACK = [
+  ["Gemini", "A decision model turns a request into a command and acts only when it is sure. Gemini Live carries spoken questions and answers. Gemini vision writes figure tours, reads chart values and describes what a lecture shows."],
+  ["Bright Data", "Reaches live pages: Web Unlocker for pages that block plain requests, the Browser API for pages that only work in a real browser, and search."],
+  ["Kokoro", "The open-source reading voice. It runs on the same machine as Arc when that machine can carry it; a small hosted copy reads with a Gemini voice."],
+  ["Open scholarly indexes", "OpenAlex, Crossref, Semantic Scholar and PubMed find a paper’s legal free copy when its link is behind a paywall."],
+  ["Next.js and TypeScript", "One Node process serves the app and the voice socket. Parsing and spatial directions are plain code."],
 ];
 
 export default function Landing() {
   return (
     <div className="landing">
-      <LandingMotion />
-      <section className="landing-hero" aria-labelledby="landing-title">
+      <section className="lp-hero" aria-labelledby="landing-title">
         <h1 id="landing-title">
-          Study any paper, chart or video <em>by ear</em>.
+          {"Study any paper, chart or lecture by ear.".split(" ").map((w, i) => (
+            <span key={i} style={{ "--d": `${700 + i * 330}ms` } as React.CSSProperties}>
+              {w}{" "}
+            </span>
+          ))}
         </h1>
-        <p className="landing-lede">
-          Arc is a study tool for blind and low-vision students. Give it a link
-          or ask for a paper; it rebuilds the page as a calm copy that reads
-          aloud, with a ring that moves from part to part as you go.
-        </p>
+        <div>
+          <p>Arc is a study tool for blind and low-vision students. It reads web pages, PDFs and lecture videos aloud, and takes you through their figures, charts and formulas by key and by voice.</p>
+          {/* The words Arc says when this page opens (components/AskButton.tsx), for anyone who sees them first. */}
+          <p className="lp-greet">
+            When this page opens, Arc says: <q>{GREETING.replace(/^Arc\. /, "")}</q>
+          </p>
+        </div>
       </section>
 
-      <section className="landing-block lr-reads" aria-labelledby="reads-title">
-        <h2 id="reads-title" data-eyebrow="Four kinds of material">
-          What Arc <em>reads</em>
-        </h2>
-        <ul className="lr-grid">
-          <li>
-            <TextArt />
-            <p className="lr-tech">Bright Data · Kokoro</p>
-            <h3>Text</h3>
-            <p>
-              An article or a textbook page becomes parts you move through by
-              ear: the ring goes heading by heading, paragraph by paragraph, and
-              a voice reads each one.
-            </p>
-            <a href={TEXTBOOK}>Open a textbook chapter</a>
-          </li>
-          <li>
-            <FigureArt />
-            <p className="lr-tech">Gemini vision · Gemini Live</p>
-            <h3>Figures</h3>
-            <p>
-              A figure becomes a guided tour. Arc tells you which way to move,
-              names each part as you arrive, and plays a soft chime. On a
-              figure, press Enter or say tour.
-            </p>
-            <a href={PAPER}>Open a research paper</a>
-          </li>
-          <li>
-            <ChartArt />
-            <p className="lr-tech">Gemini vision · code-checked numbers</p>
-            <h3>Charts</h3>
-            <p>
-              A chart gives its message first, then its values. Sweep across it
-              and a tone rises and falls with the curve. In the paper, say: go
-              to figure 20.
-            </p>
-            <a href={PAPER}>Open the paper&rsquo;s charts</a>
-          </li>
-          <li>
-            <VideoArt />
-            <p className="lr-tech">Gemini</p>
-            <h3>Video</h3>
-            <p>
-              A video becomes an outline of what is said and what is shown, part
-              by part, so you can move through a lecture the way you move
-              through a page.
-            </p>
-            <a href={VIDEO}>Open a video outline</a>
-          </li>
+      <section className="lp-problem" aria-labelledby="problem-title">
+        <h2 id="problem-title">Blind students cannot study the way their classmates do.</h2>
+        <p className="lp-lead">The tools they are given were built for text. On what teaching leans on most, the figure, the chart, the lecture video and the formula, those tools go quiet.</p>
+
+        <h3 id="spectrum-title">Blindness is not one thing</h3>
+        <p className="lp-sub">One page of a research paper, under six kinds of sight. These are impressions, not a medical simulation.</p>
+        <Spectrum />
+
+        <h3 id="today-title">What a screen reader has to work with</h3>
+        <p className="lp-sub">A screen reader reads what a page gives it. This is what a published paper, a lecture and a PDF give it.</p>
+        <Show scenes={TODAY} label="What a screen reader is given" voice="A screen reader" />
+      </section>
+
+      <section className="lp-arc" aria-labelledby="arc-title">
+        <h2 id="arc-title">Arc says what they leave out.</h2>
+        <p className="lp-lead">The same figure, chart, lecture and formula, in Arc. Then a page, a spoken request and a question.</p>
+        <Show scenes={ARC} label="Arc at work" voice="Arc" bar />
+
+        <h3 id="keys-title">The keys worth knowing</h3>
+        <ul className="lp-keys">
+          {KEYS.map(([keys, does]) => (
+            <li key={does}>
+              <span>
+                {keys.map((k) => (
+                  <kbd key={k}>{k}</kbd>
+                ))}
+              </span>
+              {does}
+            </li>
+          ))}
         </ul>
-        <p className="lr-or">
-          Or say: &ldquo;open the paper&rdquo;, &ldquo;open the video&rdquo; or
-          &ldquo;open the textbook&rdquo;.
+        <p className="lp-say">
+          Or say it: <q>find a paper about knee rehabilitation</q>, <q>open the first one</q>, <q>tour figure one</q>, <q>bigger text</q>, <q>I am blind</q>.
         </p>
       </section>
 
-      <section className="landing-block lr-pipe" aria-labelledby="pipe-title">
-        <h2 id="pipe-title" data-eyebrow="Under the hood">
-          One request, four <em>technologies</em>
-        </h2>
-        <div className="lr-trace">
-          <span className="lr-track" aria-hidden="true" />
-          <span className="lr-marker" aria-hidden="true" />
+      <section className="lp-how" aria-labelledby="how-title">
+        <h2 id="how-title">What changes for the student</h2>
+        <p className="lp-lead">A figure stops being a file name: it becomes its parts, in order, and where each one sits. A chart becomes its message and its numbers. A lecture says what is on the board. A formula is spoken as math. And at any point the student can ask, in their own words.</p>
+
+        <h3 id="pipe-title">How a link becomes something to listen to</h3>
+        <Seen className="lp-pipe">
           <ol>
-            {STATIONS.map((st, i) => (
-              <li
-                key={st.name}
-                className="lr-st"
-                style={{ ["--i" as string]: i }}
-              >
-                <label>
-                  <input
-                    className="lr-pick"
-                    type="radio"
-                    name="lr-station"
-                    aria-describedby={`lr-job-${i} lr-more-${i}`}
-                  />
-                  <span className="lr-node" aria-hidden="true" />
-                  <span className="lr-role">
-                    {st.role}
-                    <span className="lr-sr">: </span>
-                  </span>{" "}
-                  <strong>{st.name}</strong>
-                </label>
-                <p className="lr-num" aria-hidden="true">
-                  {st.num}
-                </p>
-                <p className="lr-job" id={`lr-job-${i}`}>
-                  {st.job}
-                </p>
-                <p className="lr-more" id={`lr-more-${i}`}>
-                  {st.more}
-                </p>
+            {STEPS.map(([name, does, made], i) => (
+              <li key={name} style={{ "--i": i } as React.CSSProperties}>
+                <i aria-hidden="true" />
+                <strong>{name}</strong>
+                <span>{does}</span>
+                <small>{made}</small>
               </li>
             ))}
           </ol>
-        </div>
-        <p className="lr-note-line">
-          Point at a step, or use the arrow keys on it, to pause there and read
-          why. Times are from tests.
+        </Seen>
+
+        <h3 id="stack-title">What does the work</h3>
+        <dl className="lp-stack">
+          {STACK.map(([name, does]) => (
+            <div key={name}>
+              <dt>{name}</dt>
+              <dd>{does}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="lp-credit">
+          Shown here: “Development of Wearable Devices for Collecting Digital Rehabilitation/Fitness Data from Lower Limbs”, Sensors 2024, 24(6), 1935, MDPI, CC BY 4.0: its Figure 1, and its Figure 20 redrawn from the values Arc read off it. “Reading pie graphs”, Khan Academy, CC BY-NC-SA, redrawn from one frame. “Attention Is All You Need”, Vaswani and others, 2017, page 4.
         </p>
       </section>
-
-      <div className="lr-pair">
-        <section className="landing-block" aria-labelledby="learn-title">
-          <h2 id="learn-title" data-eyebrow="Keys">
-            Three things to <em>learn</em>
-          </h2>
-          <div>
-            <ul className="landing-keys">
-              <li>
-                <span className="keys">
-                  <kbd>Space</kbd>
-                </span>
-                <span>Hold it and speak. Let go and Arc acts.</span>
-              </li>
-              <li>
-                <span className="keys" role="img" aria-label="Arrow keys">
-                  <kbd>&larr;</kbd>
-                  <kbd>&uarr;</kbd>
-                  <kbd>&darr;</kbd>
-                  <kbd>&rarr;</kbd>
-                </span>
-                <span>Move through the page, one part at a time.</span>
-              </li>
-              <li>
-                <span className="keys">
-                  <kbd>Esc</kbd>
-                </span>
-                <span>Stop the voice at once.</span>
-              </li>
-            </ul>
-            <p className="lr-also">Or click anything to hear it.</p>
-          </div>
-        </section>
-
-        <section className="landing-block" aria-labelledby="try-title">
-          <h2 id="try-title" data-eyebrow="Voice">
-            Try <em>saying</em>
-          </h2>
-          <ul className="landing-try">
-            <li>I am blind</li>
-            <li>Find a paper about knee rehabilitation</li>
-            <li>Open the first one</li>
-            <li>Tour figure one</li>
-            <li>Bigger text</li>
-          </ul>
-        </section>
-      </div>
-
-      <p className="landing-foot">
-        Built for blind and low-vision students; not yet tested with them.{" "}
-        <a href="https://github.com/vihuynh72/arc">Open source on GitHub</a>.
-      </p>
     </div>
   );
 }

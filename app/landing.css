@@ -1,989 +1,1642 @@
-/* Landing screen (components/Landing.tsx, components/landing/*). Imported after profiles.css so it can override the
-   older landing rules in globals.css. Colours come only from the theme variables, so all five themes hold.
-   Motion: one family (var(--ease), loops of 7 to 10 s, staggered); stills under reduced motion (system or Arc's own). */
+/* Hallmark · redesign · macrostructure: Long Document in four movements · genre: editorial · theme: the project's own tokens
+ * (app/globals.css, app/profiles.css; the only new values are the named ones in the block below) · nav and footer: the app's own
+ * pre-emit critique: P4 H4 E4 S5 R3 V4 · slop: 2 declared exceptions (gate 5: the bar on the left is Arc's reading cursor, used as
+ * the product draws it; gate 49: the six kinds of sight are list rows with a line of description, not one-line buttons)
+ *
+ * Landing screen (components/Landing.tsx, components/landing/*). Imported after profiles.css. Colours come only from the theme
+ * variables and the named values below, so all five themes hold. Layout answers to the landing's own width (container queries in
+ * rem), so Arc's 150% and 200% text sizes get the narrow arrangement by themselves. Motion is transform and opacity only. */
 
-/* ----- Hero: headline left, lede right on wide screens ----- */
-.landing-hero {
-  align-items: end;
-  padding: 3rem 0 3.5rem;
+.landing {
+  container: landing / inline-size;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms;
+  --dur-short: 220ms;
+  --dur-long: 420ms;
+  --dur-glide: 700ms; /* the tour ring's own glide in the product (app/globals.css) */
+  --band: color-mix(in srgb, var(--ring) 15%, var(--bg)); /* Arc's cursor band as a solid, so words sit on it */
+  --band-say: color-mix(in srgb, var(--ring) 32%, var(--bg)); /* the sentence being spoken */
+  --tint: color-mix(in srgb, var(--ring) 10%, transparent);
+  --glow: color-mix(in srgb, var(--ring) 45%, transparent);
+  --lx-math: "STIX Two Math", "Cambria Math", "Latin Modern Math", Georgia, serif;
+  --lx-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* A video picture keeps its own colours in every theme: the lecture's board, its writing and its six slice colours. */
+  --lx-board: #0e0d0c;
+  --lx-chalk: #cfe04a;
+  --lx-hand: #f3e24d;
+  --lx-label: #16130f;
+  --lx-c0: #6f9bcb; /* each carries the dark label at 5.5:1 or more */
+  --lx-c1: #cf7a70;
+  --lx-c2: #a9bb6e;
+  --lx-c3: #a08bbd;
+  --lx-c4: #5fb7c8;
+  --lx-c5: #eba55c;
+  --sx-dark: #0e0d0c;
+  --sx-fog: color-mix(in srgb, var(--muted) 45%, var(--bg));
+  --lx-h: 21rem; /* the height every scene plays in */
+  --lh: 1.5rem;
+  --gap: 0.875rem;
 }
-.landing .landing-hero h1 {
+html:has(.landing),
+body:has(.landing) {
+  overflow-x: clip;
+}
+
+.landing ol,
+.landing ul,
+.landing dl,
+.landing dd {
+  list-style: none;
   margin: 0;
-  max-width: 16ch;
-  font-size: clamp(2.5rem, 1.6rem + 3vw, 4.25rem);
-  line-height: 1;
-  letter-spacing: -0.02em;
+  padding: 0;
 }
-.landing-lede {
-  color: var(--muted);
-}
-
-/* Eyebrows come from the heading itself, not from section order. */
-.landing .landing-block h2[data-eyebrow]::before {
-  content: attr(data-eyebrow) / "";
-}
-
-/* Full-width sections: the heading sits above, the content gets the whole measure. */
-@media (min-width: 68.75rem) {
-  .landing .landing-block:is(.lr-reads, .lr-pipe) {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 3rem;
-  }
-  .landing .landing-block:is(.lr-reads, .lr-pipe) h2 {
-    position: static;
-  }
-}
-
-/* ----- What Arc reads ----- */
-.lr-grid {
-  display: grid;
-  gap: 4rem 3rem;
-}
-@media (min-width: 48rem) {
-  .lr-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-.lr-grid > li {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
+.landing :is(h1, h2, h3) {
+  font-style: normal;
+  overflow-wrap: anywhere;
   min-width: 0;
 }
-.lr-grid h3 {
-  margin: 0.375rem 0 0.75rem;
-  font-family: var(--serif);
-  font-weight: 400;
-  font-size: clamp(1.75rem, 1.4rem + 0.8vw, 2.25rem);
+.landing h2 {
+  margin: 0 0 1rem;
+  max-width: 20ch;
+  font-size: clamp(2.125rem, 1.3rem + 3vw, 4rem);
+  line-height: 1.02;
+  letter-spacing: -0.025em;
+}
+.landing h3 {
+  margin: 4rem 0 0.5rem;
+  font-size: clamp(1.5rem, 1.25rem + 0.9vw, 2rem);
   line-height: 1.1;
 }
-.lr-grid p {
-  margin: 0 0 1.5rem;
-  max-width: 34rem;
-  font-size: 1rem;
-  line-height: 1.625rem;
+.lp-lead,
+.lp-sub {
+  margin: 0;
+  max-width: 40rem;
   color: var(--muted);
 }
-.lr-grid li > p.lr-tech,
-.lr-role {
-  font-family: var(--sans);
-  font-size: 0.75rem;
+.lp-lead {
+  font-size: clamp(1.125rem, 1rem + 0.5vw, 1.375rem);
+  line-height: 1.5;
+  color: var(--ink);
+}
+.lp-sub {
+  margin-bottom: 1.75rem;
+}
+.lp-lead + .lx {
+  margin-top: 2.5rem;
+}
+.landing q {
+  quotes: "\201C" "\201D";
+}
+
+/* ---------- 1. Hero: the headline under Arc's own cursor, read word by word once ---------- */
+
+.lp-hero {
+  display: grid;
+  gap: 2rem;
+  padding: 2.5rem 0 4.5rem;
+}
+.lp-hero h1 {
+  position: relative;
+  isolation: isolate;
+  margin: 0 0 0 clamp(1rem, 4cqi, 3.5rem);
+  max-width: 11.5ch;
+  font-size: clamp(2.75rem, 1.2rem + 7.4cqi, 6rem);
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+/* The cursor band, and the pointer in the margin (the arrow of components/Pointer.tsx). */
+.lp-hero h1::before {
+  content: "";
+  position: absolute;
+  inset: -0.1em -0.25em -0.14em -0.32em;
+  z-index: -2;
+  border-left: 0.14em solid var(--ring);
+  border-radius: 0.08em 0.22em 0.22em 0.08em;
+  background: var(--band);
+}
+.lp-hero h1::after {
+  content: "";
+  position: absolute;
+  top: 0.12em;
+  left: -0.92em;
+  width: 0.5em;
+  height: 0.5em;
+  background: var(--ring);
+  clip-path: polygon(10% 12%, 92% 50%, 10% 88%, 28% 50%);
+}
+.lp-hero h1 span {
+  position: relative;
+}
+.lp-hero h1 span::before {
+  content: "";
+  position: absolute;
+  inset: 0.1em -0.08em 0.02em;
+  z-index: -1;
+  border-bottom: 0.06em solid var(--ring);
+  border-radius: 0.06em;
+  background: var(--band-say);
+  opacity: 0;
+  animation: lp-say 620ms var(--ease-in-out) var(--d) both;
+}
+@keyframes lp-say {
+  30%,
+  60% {
+    opacity: 1;
+  }
+}
+.lp-hero > div {
+  display: grid;
+  gap: 1rem;
+  max-width: 32rem;
+}
+.lp-hero p {
+  margin: 0;
+  font-size: 1.125rem;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.lp-hero .lp-greet {
+  padding-top: 1rem;
+  border-top: 1px solid var(--hair);
+  font-size: 1rem;
+}
+.lp-greet q {
+  display: block;
+  font-family: var(--serif);
+  font-size: 1.5rem;
+  line-height: 1.25;
+  color: var(--ink);
+}
+@container landing (min-width: 62rem) {
+  .lp-hero {
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+    align-items: end;
+    gap: 4rem;
+    padding: 3.5rem 0 6rem;
+  }
+}
+
+/* ---------- 2. The problem: a band of its own, edge to edge ---------- */
+
+.lp-problem {
+  padding: 5rem 0 5.5rem;
+  background: var(--surface);
+  box-shadow: 0 0 0 100vmax var(--surface);
+  clip-path: inset(0 -100vmax);
+}
+.lp-arc {
+  padding: 6rem 0 4rem;
+}
+.lp-how {
+  padding: 4.5rem 0 2rem;
+  border-top: 1px solid var(--hair);
+}
+
+/* The six impressions: layers over the page, shown by opacity; the missing part follows the pointer by transform. */
+.sx {
+  display: grid;
+  gap: 1.25rem;
+}
+.sx-view {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--hair);
+  border-radius: 1.25rem;
+  background: var(--card);
+}
+.sx-page {
+  display: grid;
+  gap: 0.75rem;
+  padding: clamp(1rem, 4cqi, 2rem);
+  font-size: 0.9375rem;
+  line-height: 1.5rem;
+}
+.sx-journal,
+.sx-cap {
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  color: var(--muted);
+}
+.sx-title {
+  font-family: var(--serif);
+  font-size: clamp(1.375rem, 1rem + 1.6cqi, 2rem);
+  line-height: 1.1;
+}
+.sx-page img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--hair);
+  border-radius: 0.5rem;
+}
+.sx-veil,
+.sx-veil > i {
+  position: absolute;
+  inset: 0;
+}
+.sx-veil > i {
+  opacity: 0;
+  transition: opacity var(--dur-long) var(--ease-out);
+}
+.sx-blur {
+  -webkit-backdrop-filter: blur(0.3rem);
+  backdrop-filter: blur(0.3rem);
+}
+.sx-veil > .sx-centre,
+.sx-veil > .sx-tunnel {
+  inset: -100%;
+  transform: translate(var(--mx, 0%), var(--my, 0%));
+}
+.sx-centre {
+  background: radial-gradient(circle 9rem at center, var(--sx-fog) 50%, transparent);
+}
+.sx-tunnel {
+  background: radial-gradient(circle 8rem at center, transparent 68%, var(--sx-dark));
+}
+.sx-glare {
+  background: radial-gradient(circle at 75% 15%, var(--card) 10%, color-mix(in srgb, var(--card) 80%, transparent) 60%);
+}
+.sx-none {
+  background: var(--sx-dark);
+}
+[data-sight="blur"] > .sx-blur,
+[data-sight="centre"] > .sx-centre,
+[data-sight="tunnel"] > .sx-tunnel,
+[data-sight="glare"] > .sx-glare,
+[data-sight="none"] > .sx-none {
+  opacity: 1;
+}
+[data-sight="centre"] > .sx-blur {
+  opacity: 0.45;
+}
+
+/* The two pickers (kinds of sight, scenes): plain buttons in a list. Narrow: one-line chips. Wide: a rail, the choice under Arc's band. */
+.lx-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.landing :is(.sx-list, .lx-list) button {
+  display: grid;
+  min-height: 2.75rem;
+  padding: 0.5rem 1rem;
+  background: var(--card);
+  text-align: left;
+  white-space: nowrap;
+  transition:
+    background-color var(--dur-short) var(--ease-out),
+    color var(--dur-short) var(--ease-out),
+    transform var(--dur-micro) var(--ease-out);
+}
+.landing :is(.sx-list, .lx-list) button:active {
+  transform: translateY(1px);
+}
+.landing :is(.sx-list, .lx-list) button span {
+  font-size: 0.9375rem;
+  font-weight: 500;
+}
+.landing :is(.sx-list, .lx-list) button small {
+  display: none;
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.25rem;
+  color: var(--muted);
+}
+.landing :is(.sx-list, .lx-list) button[aria-pressed="true"] {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--bg);
+}
+.lx-band {
+  display: none;
+}
+
+/* A rail: one row per choice, its name and its line; Arc's cursor band marks the choice. */
+.landing .sx-list button {
+  border-radius: 0;
+}
+.landing .sx-list button + button {
+  box-shadow: inset 0 1px var(--hair);
+}
+.landing .sx-list button {
+  width: 100%;
+  min-height: 4rem;
+  padding: 0.625rem 1rem 0.625rem 1.375rem;
+  border: 0;
+  background: none;
+  white-space: normal;
+}
+.landing .sx-list button span {
+  font-family: var(--serif);
+  font-size: 1.5rem;
+  font-weight: 400;
+  line-height: 1.2;
+}
+.landing .sx-list button small {
+  display: block;
+}
+.landing .sx-list button:hover {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+.landing .sx-list button[aria-pressed="true"],
+.lx-band {
+  border-left: 0.5rem solid var(--ring);
+  border-radius: 0.375rem 0.875rem 0.875rem 0.375rem;
+  background: var(--band);
+  box-shadow: none;
+  color: var(--ink);
+}
+.landing .sx-list button[aria-pressed="true"] + button {
+  box-shadow: none;
+}
+.landing .lx-list button {
+  border-radius: 9999px;
+}
+@container landing (min-width: 62rem) {
+  .sx {
+    grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+    align-items: center;
+    gap: 3.5rem;
+  }
+  .lx-list {
+    display: block;
+  }
+  .landing .lx-list button {
+    position: relative;
+    z-index: 1;
+    align-content: center;
+    width: 100%;
+    height: 4rem;
+    padding: 0 1rem 0 1.375rem;
+    border: 0;
+    border-radius: 0;
+    background: none;
+  }
+  .landing .lx-list button + button {
+    box-shadow: inset 0 1px var(--hair);
+  }
+  .landing .lx-list button span {
+    font-family: var(--serif);
+    font-size: 1.5rem;
+    font-weight: 400;
+    line-height: 1.2;
+  }
+  .landing .lx-list button small {
+    display: block;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .landing .lx-list button:hover {
+    background: color-mix(in srgb, var(--ink) 5%, transparent);
+  }
+  .landing .lx-list button[aria-pressed="true"] {
+    background: none;
+    color: var(--ink);
+  }
+  .lx-rail {
+    position: relative;
+  }
+  .lx-band {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4rem;
+    overflow: hidden;
+    border-radius: 0.375rem 0.875rem 0.875rem 0.375rem;
+    transition: transform var(--dur-long) var(--ease-in-out);
+  }
+  .lx-band > i {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 0.1875rem;
+    background: var(--ring);
+    transform-origin: 0 50%;
+    transition: transform linear; /* a progress bar: the one place linear belongs */
+  }
+}
+
+/* ---------- The stage (components/landing/Show.tsx) ---------- */
+
+.lx {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+.lx-stage {
+  container: stage / inline-size;
+  overflow: hidden;
+  border: 1px solid var(--hair);
+  border-radius: 1.25rem;
+  background: var(--bg);
+  box-shadow: var(--shadow);
+  font-size: 0.9375rem;
+  line-height: var(--lh);
+  color: var(--ink);
+}
+.lp-problem .lx-stage {
+  background: var(--card); /* the published page, the lecture and the PDF as they are */
+  box-shadow: none;
+}
+.lp-problem .lx {
+  --lx-h: 22rem;
+}
+.lx-view {
+  position: relative;
+  height: var(--lx-h);
+  overflow: hidden;
+}
+.lx-scene {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity var(--dur-short) var(--ease-in),
+    visibility 0s var(--dur-short);
+}
+.lx-scene[data-on] {
+  opacity: 1;
+  visibility: visible;
+  transition: none;
+}
+.lx[data-run] .lx-scene[data-on] {
+  animation: lx-in var(--dur-long) var(--ease-out) both;
+}
+@keyframes lx-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem);
+  }
+}
+
+/* Arc's own bar, small: the brand and the one box, with its microphone. */
+.lx-bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.625rem 1rem;
+  border-bottom: 1px solid var(--hair);
+}
+.lx-bar > b {
+  font-family: var(--serif);
+  font-size: 1.375rem;
+  font-weight: 400;
+  line-height: 1;
+}
+.lx-ask {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  min-width: 0;
+  max-width: 26rem;
+  min-height: 2.25rem;
+  padding: 0.1875rem 0.1875rem 0.1875rem 1rem;
+  border: 1px solid var(--edge);
+  border-radius: 9999px;
+  background: var(--card);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+.lx-ask > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.lx-mic {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--bg);
+}
+.lx-mic svg {
+  width: 1rem;
+  height: 1rem;
+}
+.lx-mic rect {
+  fill: currentColor;
+}
+.lx-mic path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.lx-mic::after {
+  content: "";
+  position: absolute;
+  inset: -0.25rem;
+  border: 0.1875rem solid var(--ring);
+  border-radius: 50%;
+  opacity: 0;
+}
+[data-ask="listening"] .lx-mic {
+  background: var(--ring);
+}
+[data-ask="listening"] .lx-mic::after {
+  opacity: 1;
+}
+.lx[data-run] [data-ask="listening"] .lx-mic::after {
+  animation: lx-listen 1.1s var(--ease-in-out) 2 both; /* twice: as long as the Space key is held */
+}
+@keyframes lx-listen {
+  from {
+    transform: scale(0.7);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+:is([data-ask="listening"], [data-ask="thinking"]) .lx-ask > span {
+  font-weight: 500;
+  color: var(--ring);
+}
+[data-ask="typing"] .lx-ask {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+:is([data-ask="thinking"], [data-ask="done"]) .lx-ask {
+  border-color: var(--ring);
+}
+
+/* Who did what: the student on the left, the voice on the right. The words come in at the pace of speech. */
+.lx-lanes {
+  display: grid;
+  border-top: 1px solid var(--hair);
+  background: var(--surface);
+}
+.lp-problem .lx-lanes {
+  background: var(--bg);
+}
+/* Fixed heights: the stage never changes size as lines come and go, so nothing below it ever moves. */
+.lx-lanes > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 0.25rem;
+  height: 5rem;
+  overflow: hidden;
+  padding: 0.75rem 1rem;
+}
+.lx-lanes > div + div {
+  height: 10.5rem;
+  border-top: 1px solid var(--hair);
+}
+.lx-lanes b {
+  font-family: var(--serif);
+  font-size: 1.125rem;
+  font-weight: 400;
+  line-height: 1.25rem;
+  color: var(--muted);
+}
+.lx-lanes > div > span {
+  display: block;
+  min-height: 1.5rem;
+}
+.lx-lanes q {
+  font-family: var(--serif);
+  font-size: 1.25rem;
+}
+.lx-lanes em {
+  color: var(--muted);
+}
+.lx-lanes kbd {
+  position: relative;
+  height: 2rem;
+  min-width: 2rem;
+  margin-right: 0.5rem;
+  vertical-align: middle;
+}
+.lx-lanes kbd[data-held] {
+  transform: translateY(0.125rem);
+  background: var(--band);
+}
+.lx[data-run] .lx-lanes kbd:not([data-held]) {
+  animation: lx-press var(--dur-long) var(--ease-out) both;
+}
+@keyframes lx-press {
+  30% {
+    transform: translateY(0.1875rem) scale(0.95);
+  }
+}
+.lx[data-run] .lx-w {
+  animation: lx-word var(--dur-short) var(--ease-out) both;
+}
+@keyframes lx-word {
+  from {
+    opacity: 0;
+  }
+}
+/* The sound of a chart: a note that rises and falls as the pointer crosses the curve below (the same eight points, in step). */
+.lx-tone {
+  position: relative;
+  display: inline-block;
+  width: 0.25rem;
+  height: 2rem;
+  margin: 0 0.75rem 0 0.375rem;
+  border-radius: 0.125rem;
+  background: var(--hair);
+  vertical-align: middle;
+}
+.lx-tone > i {
+  position: absolute;
+  left: -0.3125rem;
+  bottom: 0;
+  width: 0.875rem;
+  height: 0.25rem;
+  border-radius: 0.125rem;
+  background: var(--ring);
+  transform: translateY(-1.73rem);
+}
+.lx[data-run] .lx-tone > i {
+  animation: lx-tone 2.8s both;
+}
+@keyframes lx-tone {
+  0% {
+    transform: translateY(-0.18rem);
+    animation-timing-function: var(--ease-in-out);
+  }
+  17.4% {
+    transform: translateY(-1.73rem);
+    animation-timing-function: var(--ease-in-out);
+  }
+  29.8% {
+    transform: translateY(-0.12rem);
+    animation-timing-function: var(--ease-in-out);
+  }
+  43.8% {
+    transform: translateY(-1.65rem);
+    animation-timing-function: var(--ease-in-out);
+  }
+  57% {
+    transform: translateY(0);
+    animation-timing-function: var(--ease-in-out);
+  }
+  71.9% {
+    transform: translateY(-1.68rem);
+    animation-timing-function: var(--ease-in-out);
+  }
+  83.5% {
+    transform: translateY(-0.07rem);
+    animation-timing-function: var(--ease-in-out);
+  }
+  100% {
+    transform: translateY(-1.73rem);
+  }
+}
+
+/* Pause, step, and the way in to the real thing. */
+.lx-ctl {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.lx-ctl button {
+  white-space: nowrap;
+  transition:
+    background-color var(--dur-short) var(--ease-out),
+    transform var(--dur-micro) var(--ease-out);
+}
+.lx-ctl button:active {
+  transform: translateY(1px);
+}
+.lx-ctl .lx-step {
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  padding: 0;
+}
+.lx-ctl svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.landing .lx-ctl .lx-try {
+  margin-left: auto;
+  padding-inline: 1.5rem;
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--bg);
+}
+.landing .lx-ctl .lx-try:hover {
+  background: color-mix(in srgb, var(--ink) 85%, var(--bg));
+}
+.lx-note {
+  flex: 1 1 100%;
+  font-size: 0.875rem;
+  line-height: 1.375rem;
+  color: var(--muted);
+}
+
+@container landing (min-width: 46rem) {
+  .lx-lanes {
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.5fr);
+  }
+  .lx-lanes > div,
+  .lx-lanes > div + div {
+    height: 7.75rem;
+    padding: 0.875rem 1.25rem;
+    border-top: 0;
+  }
+  .lx-lanes > div + div {
+    border-left: 1px solid var(--hair);
+  }
+}
+@container landing (min-width: 62rem) {
+  .landing {
+    --lx-h: 23rem;
+  }
+  .lx {
+    grid-template-columns: 18rem minmax(0, 1fr);
+    grid-template-areas:
+      "rail stage"
+      "rail ctl";
+    column-gap: 3.5rem;
+    align-items: start;
+  }
+  .lp-problem .lx {
+    --lx-h: 19rem;
+    grid-template-columns: minmax(0, 1fr) 18rem; /* the mirror image of Arc's own stage below */
+    grid-template-areas:
+      "stage rail"
+      "ctl rail";
+  }
+  .lx-rail {
+    grid-area: rail;
+  }
+  .lx-stage {
+    grid-area: stage;
+  }
+  .lx-ctl {
+    grid-area: ctl;
+  }
+  .lx-note {
+    flex: 1 1 12rem;
+    order: 1;
+    text-align: right;
+  }
+  .landing .lx-ctl .lx-try {
+    order: 2;
+    margin-left: 0;
+  }
+  .lx-ctl > .lx-note:last-child {
+    text-align: left;
+    margin-left: 0.5rem;
+  }
+}
+
+/* ---------- Inside the scenes (components/landing/scenes.tsx) ---------- */
+
+/* A page of text as Arc shows it. Every paragraph is a fixed number of lines, so the band's steps are known without measuring. */
+.lx-page {
+  height: 100%;
+  padding: 1.125rem 1.25rem 0 3rem;
+  transform: translateY(calc(var(--row, 0) * var(--scroll, -4.5rem)));
+  transition: transform var(--dur-long) var(--ease-in-out);
+}
+.lx-strip {
+  height: 200%;
+  transform: translateY(calc(var(--pg) * -50%));
+  transition: transform var(--dur-glide) var(--ease-in-out);
+}
+.lx-strip > .lx-page {
+  height: 50%;
+  --scroll: 0rem;
+}
+.lx-eyebrow,
+.lx-stamp {
+  margin-bottom: 0.5rem;
+  font-size: 0.6875rem;
   font-weight: 500;
   line-height: 1rem;
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--muted);
 }
-.lr-grid li > p.lr-tech {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin: 1.5rem 0 0;
+.lx-eyebrow {
+  padding-left: 2.25rem;
+  background: linear-gradient(var(--muted), var(--muted)) left center / 1.5rem 1px no-repeat;
 }
-.lr-grid li > p.lr-tech::before {
-  content: "";
-  width: 2rem;
-  border-top: 1px solid var(--muted);
+.lx-stamp {
+  letter-spacing: 0.08em;
+  text-transform: none;
 }
-
-/* The one way to try each: a pill link. */
-.lr-grid a {
-  margin-top: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.625rem;
-  min-height: 3rem;
-  padding: 0 1.375rem;
-  border: 1px solid var(--edge);
-  border-radius: 9999px;
-  color: var(--ink);
-  font-weight: 500;
-  text-decoration: none;
-  transition:
-    background-color 0.4s var(--ease),
-    border-color 0.4s var(--ease);
-}
-.lr-grid a::after {
-  content: "\2192" / "";
-  transition: transform 0.4s var(--ease);
-}
-.lr-grid a:hover {
-  background: var(--surface);
-  border-color: var(--ink);
-}
-.lr-grid a:hover::after {
-  transform: translateX(0.25rem);
-}
-.lr-or,
-.lr-note-line {
-  margin: 0;
-  font-size: 1rem;
-  color: var(--muted);
-}
-.lr-or {
+.lx-h2,
+.lx-h3 {
+  position: relative;
+  isolation: isolate;
+  margin-bottom: 0.75rem;
   font-family: var(--serif);
-  font-style: italic;
-  font-size: 1.5rem;
-  color: var(--ink);
+  font-size: 1.75rem;
+  line-height: 2rem;
+}
+.lx-h3 {
+  margin-bottom: 0.5rem;
+  font-size: 1.25rem;
+  line-height: 1.5rem;
+}
+.lx-rows,
+.lx-p,
+.lx-eqblock,
+.lx-capn {
+  position: relative;
+  isolation: isolate;
+}
+.lx-p {
+  margin-bottom: var(--gap);
+}
+.lx-p > span {
+  display: -webkit-box;
+  height: calc(var(--n, 4) * var(--lh));
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--n, 4);
+}
+.lx-long {
+  --n: 6;
+}
+/* The reading cursor: a tinted band with a thick bar on the left and the pointer in the margin, as in the product. */
+.lx-cursor {
+  position: absolute;
+  inset: -0.3125rem -0.625rem -0.3125rem -1rem;
+  z-index: -1;
+  border-left: 0.5rem solid var(--ring);
+  border-radius: 0.375rem 0.875rem 0.875rem 0.375rem;
+  background: var(--band);
+  opacity: 0;
+  transition:
+    opacity var(--dur-short) var(--ease-out),
+    transform 250ms var(--ease-out);
+}
+.lx-cursor::before {
+  content: "";
+  position: absolute;
+  top: 0.125rem;
+  left: -2.25rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  background: var(--ring);
+  clip-path: polygon(10% 12%, 92% 50%, 10% 88%, 28% 50%);
+}
+[data-here] > .lx-cursor,
+.lx-capn[data-on] > .lx-cursor {
+  opacity: 1;
+}
+.lx-rows > .lx-cursor {
+  bottom: auto;
+  height: calc(var(--n, 4) * var(--lh) + 0.625rem);
+  opacity: 1;
+  transform: translateY(calc(var(--row, 0) * (var(--n, 4) * var(--lh) + var(--gap))));
+}
+[data-say] {
+  border-radius: 0.1875rem;
+  background: var(--band-say);
+  text-decoration: underline;
+  text-decoration-color: var(--ring);
+  text-decoration-thickness: 0.1875rem;
+  text-underline-offset: 0.25rem;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 
-/* ----- The pictures: one system ----- */
-.lr-art {
+/* A figure card, its picture, the tour's ring and its stop line. */
+.lx-pad {
+  display: grid;
+  align-content: start;
+  gap: 0.625rem;
+  height: 100%;
+  padding: 1rem;
+}
+/* The stage is the figure's card: the picture and its line sit straight on it, with nothing boxed inside a box. */
+.lx-card {
+  display: grid;
+  gap: 0.75rem;
+}
+.lx-pic,
+.lx-chart {
+  position: relative;
+  width: min(100%, calc((var(--lx-h) - 6.75rem) * var(--ar)));
+  margin-inline: auto;
+  line-height: 0;
+}
+.lx-pic {
+  --ar: 2.789;
+}
+.lx-chart {
+  --ar: 2.4;
+}
+.lx-orig :is(.lx-pic, .lx-chart) {
+  width: min(100%, calc((var(--lx-h) - 12.5rem) * var(--ar)));
+  margin-inline: 0;
+}
+.lx-zoom {
+  position: relative;
+}
+.lx-card .lx-pic {
+  overflow: hidden;
+  border-radius: 0.5rem;
+}
+.lx-card .lx-pic .lx-zoom {
+  width: 180%;
+  transform: translateX(-44.4%);
+}
+.lx-chart {
+  overflow: hidden;
+}
+.lx-chart .lx-zoom {
+  width: 230%;
+}
+.lx-pic img {
   display: block;
   width: 100%;
   height: auto;
-  padding: 1.5rem;
-  box-sizing: border-box;
-  background: var(--card);
   border: 1px solid var(--hair);
-  border-radius: 1.25rem;
-  color: var(--ink);
-  font-family: var(--sans);
-  overflow: visible;
+  border-radius: 0.5rem;
 }
-.lr-art text {
-  fill: var(--ink);
-  font-size: 11px;
-  font-weight: 500;
-}
-.lr-art * {
-  animation-timing-function: var(--ease);
-  animation-iteration-count: infinite;
-  animation-fill-mode: both;
-}
-.lr-art .lr-small {
-  fill: var(--muted);
-  font-size: 9px;
-  font-weight: 400;
-}
-.lr-ring {
-  fill: var(--ring);
-  fill-opacity: 0.07;
-  stroke: var(--ring);
-  stroke-width: 2.5;
-}
-.lr-bar {
-  fill: var(--hair);
-}
-.lr-bar.lr-head {
-  fill: var(--muted);
-  opacity: 0.55;
-}
-.lr-mark {
-  fill: var(--ring);
-}
-
-/* Text: heading, paragraph, heading, paragraph (8 s). */
-.lr-text .lr-ring {
-  animation-name: lr-text-ring;
-  animation-duration: 8s;
-}
-.lr-text .lr-mark {
-  animation-name: lr-text-mark;
-  animation-duration: 8s;
-  animation-timing-function: linear;
-}
-@keyframes lr-text-ring {
-  0%,
-  20% {
-    y: 16px;
-    height: 30px;
-  }
-  25%,
-  45% {
-    y: 46px;
-    height: 54px;
-  }
-  50%,
-  70% {
-    y: 106px;
-    height: 30px;
-  }
-  75%,
-  95% {
-    y: 136px;
-    height: 54px;
-  }
-  100% {
-    y: 16px;
-    height: 30px;
-  }
-}
-@keyframes lr-text-mark {
-  0% {
-    transform: translate(0, -26px);
-    opacity: 0;
-  }
-  3% {
-    transform: translate(8px, -26px);
-    opacity: 1;
-  }
-  18% {
-    transform: translate(104px, -26px);
-    opacity: 1;
-  }
-  21% {
-    transform: translate(104px, -26px);
-    opacity: 0;
-  }
-  24% {
-    transform: translate(0, 0);
-    opacity: 0;
-  }
-  28% {
-    transform: translate(18px, 0);
-    opacity: 1;
-  }
-  43% {
-    transform: translate(232px, 0);
-    opacity: 1;
-  }
-  46% {
-    transform: translate(232px, 0);
-    opacity: 0;
-  }
-  49% {
-    transform: translate(0, 64px);
-    opacity: 0;
-  }
-  53% {
-    transform: translate(8px, 64px);
-    opacity: 1;
-  }
-  68% {
-    transform: translate(80px, 64px);
-    opacity: 1;
-  }
-  71% {
-    transform: translate(80px, 64px);
-    opacity: 0;
-  }
-  74% {
-    transform: translate(0, 90px);
-    opacity: 0;
-  }
-  78% {
-    transform: translate(18px, 90px);
-    opacity: 1;
-  }
-  93% {
-    transform: translate(224px, 90px);
-    opacity: 1;
-  }
-  96%,
-  100% {
-    transform: translate(224px, 90px);
-    opacity: 0;
-  }
-}
-
-/* Figure: sensor, hub, belt unit (9 s, three slots of 3 s). The still shows the belt unit. */
-.lr-wire {
-  fill: none;
-  stroke: var(--edge);
-  stroke-width: 1.25;
-}
-.lr-box {
-  fill: var(--card);
-  stroke: var(--edge);
-  stroke-width: 1.25;
-}
-.lr-rule {
-  stroke: var(--hair);
-}
-.lr-art .lr-cap {
-  font-size: 12px;
+.lx-ring {
+  position: absolute;
+  border: 0.25rem solid var(--ring);
+  border-radius: 0.625rem;
+  background: var(--tint);
+  box-shadow:
+    0 0 0 0.125rem var(--card),
+    0 0.125rem 1.25rem 0.125rem var(--glow);
+  transform-origin: 0 0;
+  transform: var(--from);
   opacity: 0;
+  transition:
+    transform var(--dur-glide) var(--ease-out) 150ms,
+    opacity 300ms var(--ease-in-out) 150ms; /* the ring follows the pointer */
 }
-.lr-art .lr-go {
-  fill: var(--muted);
-  font-style: italic;
-}
-.lr-art .lr-still {
+.lx-ring[data-at="on"] {
+  transform: none;
   opacity: 1;
 }
-.lr-pulse {
-  fill: none;
-  stroke: var(--ring);
-  stroke-width: 2;
-  opacity: 0;
-  transform-box: fill-box;
-  transform-origin: center;
+.lx-ring[data-at="past"] {
+  transform: var(--to);
 }
-.lr-figure .lr-ring {
-  animation-name: lr-fig-ring;
-  animation-duration: 9s;
-}
-.lr-figure .lr-go {
-  animation-name: lr-fig-go;
-  animation-duration: 9s;
-}
-.lr-figure .lr-at {
-  animation-name: lr-fig-at;
-  animation-duration: 9s;
-}
-.lr-figure .lr-pulse {
-  animation-name: lr-fig-pulse;
-  animation-duration: 9s;
-}
-.lr-figure :is(.lr-c2, .lr-p2) {
-  animation-delay: -6s;
-}
-.lr-figure :is(.lr-c3, .lr-p3) {
-  animation-delay: -3s;
-}
-@keyframes lr-fig-ring {
-  0% {
-    transform: translate(0, 0);
-  }
-  11%,
-  33% {
-    transform: translate(0, -90px);
-  }
-  44%,
-  66% {
-    transform: translate(180px, -90px);
-  }
-  77%,
-  100% {
-    transform: translate(0, 0);
-  }
-}
-@keyframes lr-fig-go {
-  0%,
-  9% {
-    opacity: 1;
-  }
-  11%,
-  100% {
-    opacity: 0;
-  }
-}
-@keyframes lr-fig-at {
-  0%,
-  10% {
-    opacity: 0;
-  }
-  12%,
-  31% {
-    opacity: 1;
-  }
-  33%,
-  100% {
-    opacity: 0;
-  }
-}
-@keyframes lr-fig-pulse {
-  0%,
-  10% {
-    transform: scale(0.7);
-    opacity: 0;
-  }
-  12% {
-    transform: scale(0.8);
-    opacity: 0.6;
-  }
-  28%,
-  100% {
-    transform: scale(1.7);
-    opacity: 0;
-  }
-}
-
-/* Chart: a sweep along one curve, the note follows its height, the reading at the peak (10 s). Still at the peak. */
-.lr-axis,
-.lr-tick {
-  fill: none;
-  stroke: var(--edge);
-  stroke-width: 1;
-}
-.lr-series {
-  fill: none;
-  stroke: var(--ink);
-  stroke-width: 2;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-}
-.lr-series2 {
-  fill: none;
-  stroke: var(--muted);
-  stroke-width: 1.5;
-  stroke-dasharray: 4 4;
-}
-.lr-guide {
-  stroke: var(--ring);
-  stroke-width: 1;
-  stroke-dasharray: 2 3;
-}
-.lr-dot,
-.lr-note {
-  fill: var(--ring);
-}
-.lr-halo {
-  fill: none;
-  stroke: var(--ring);
-  stroke-width: 1.5;
-  opacity: 0.45;
-}
-.lr-track {
-  stroke: var(--hair);
-  stroke-width: 3;
-  stroke-linecap: round;
-}
-.lr-art .lr-read {
-  font-size: 12px;
-}
-.lr-chart :is(.lr-dot, .lr-halo) {
-  animation-name: lr-chart-xy, lr-chart-fade;
-}
-.lr-chart .lr-guide {
-  animation-name: lr-chart-x, lr-chart-fade;
-}
-.lr-chart .lr-note {
-  animation-name: lr-chart-y, lr-chart-fade;
-}
-.lr-chart :is(.lr-dot, .lr-halo, .lr-guide, .lr-note) {
-  animation-duration: 10s;
-  animation-timing-function: linear;
-}
-.lr-chart .lr-read {
-  animation: lr-chart-read 10s var(--ease) infinite both;
-}
-@keyframes lr-chart-xy {
-  0% {
-    transform: translate(-144px, 88px);
-  }
-  12% {
-    transform: translate(-108px, 72.6px);
-  }
-  24% {
-    transform: translate(-72px, 37.4px);
-  }
-  36% {
-    transform: translate(-36px, 15.4px);
-  }
-  48% {
-    transform: translate(0, 0);
-  }
-  60% {
-    transform: translate(36px, 33px);
-  }
-  72% {
-    transform: translate(72px, 68.2px);
-  }
-  80%,
-  100% {
-    transform: translate(96px, 81.4px);
-  }
-}
-@keyframes lr-chart-x {
-  0% {
-    transform: translateX(-144px);
-  }
-  12% {
-    transform: translateX(-108px);
-  }
-  24% {
-    transform: translateX(-72px);
-  }
-  36% {
-    transform: translateX(-36px);
-  }
-  48% {
-    transform: translateX(0);
-  }
-  60% {
-    transform: translateX(36px);
-  }
-  72% {
-    transform: translateX(72px);
-  }
-  80%,
-  100% {
-    transform: translateX(96px);
-  }
-}
-@keyframes lr-chart-y {
-  0% {
-    transform: translateY(88px);
-  }
-  12% {
-    transform: translateY(72.6px);
-  }
-  24% {
-    transform: translateY(37.4px);
-  }
-  36% {
-    transform: translateY(15.4px);
-  }
-  48% {
-    transform: translateY(0);
-  }
-  60% {
-    transform: translateY(33px);
-  }
-  72% {
-    transform: translateY(68.2px);
-  }
-  80%,
-  100% {
-    transform: translateY(81.4px);
-  }
-}
-@keyframes lr-chart-fade {
-  0% {
-    opacity: 0;
-  }
-  3%,
-  84% {
-    opacity: 1;
-  }
-  92%,
-  100% {
-    opacity: 0;
-  }
-}
-@keyframes lr-chart-read {
-  0%,
-  45% {
-    opacity: 0;
-  }
-  48%,
-  60% {
-    opacity: 1;
-  }
-  66%,
-  100% {
-    opacity: 0;
-  }
-}
-
-/* Video: the playhead steps part to part; the card says what is said and shown (7 s). Still on part three. */
-.lr-seg {
-  fill: var(--hair);
-}
-.lr-card {
-  fill: none;
-  stroke: var(--hair);
-}
-.lr-art .lr-label {
-  fill: var(--muted);
-  font-size: 9px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-.lr-art .lr-part text {
-  font-size: 12px;
-}
-.lr-art .lr-part .lr-dim {
-  fill: var(--muted);
-  font-weight: 400;
-}
-.lr-part {
-  opacity: 0;
-}
-.lr-part.lr-still {
-  opacity: 1;
-}
-.lr-video .lr-ring {
-  animation-name: lr-vid-ring;
-  animation-duration: 7s;
-}
-.lr-video .lr-part {
-  animation-name: lr-vid-part;
-  animation-duration: 7s;
-}
-.lr-video .lr-v2 {
-  animation-delay: -5.25s;
-}
-.lr-video .lr-v3 {
-  animation-delay: -3.5s;
-}
-.lr-video .lr-v4 {
-  animation-delay: -1.75s;
-}
-@keyframes lr-vid-ring {
-  0%,
-  21% {
-    transform: translateX(-140px);
-  }
-  25%,
-  46% {
-    transform: translateX(-70px);
-  }
-  50%,
-  71% {
-    transform: translateX(0);
-  }
-  75%,
-  96% {
-    transform: translateX(70px);
-  }
-  100% {
-    transform: translateX(-140px);
-  }
-}
-@keyframes lr-vid-part {
-  0% {
-    opacity: 0;
-  }
-  4%,
-  20% {
-    opacity: 1;
-  }
-  23%,
-  100% {
-    opacity: 0;
-  }
-}
-
-/* ----- One request, four technologies ----- */
-.lr-trace {
-  position: relative;
-  isolation: isolate;
-}
-.lr-trace ol {
-  display: grid;
-  gap: 0.5rem;
-}
-.lr-st {
-  position: relative;
-  isolation: isolate;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 1.25rem 1.25rem 1.5rem;
-}
-.lr-st::before {
-  content: "";
+/* Arc's pointer: a layer the size of the picture, moved by percentages of itself, with the arrow's tip at its corner. */
+.lx-arrow {
   position: absolute;
   inset: 0;
-  z-index: -1;
-  border: 1px solid var(--hair);
-  border-radius: 1.25rem;
-  background: var(--card);
   opacity: 0;
+  transition:
+    transform 600ms var(--ease-in-out),
+    opacity var(--dur-short) var(--ease-out);
 }
-.lr-st label {
-  display: flex;
-  flex-direction: column;
-  gap: 0.625rem;
-  cursor: pointer;
+.lx-arrow[data-on] {
+  opacity: 1;
 }
-.lr-pick {
+.lx-arrow svg {
   position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  margin: 0;
+  top: 0;
+  left: 0;
+  width: 1.125rem;
 }
-.lr-st:has(.lr-pick:focus-visible)::before {
-  outline: 3px solid var(--focus);
-  outline-offset: 2px;
+.lx-arrow path {
+  fill: var(--ring);
+  stroke: var(--card);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
 }
-.lr-node {
-  display: block;
-  width: 0.875rem;
-  height: 0.875rem;
-  margin: 0.6875rem 0;
+/* The chime, seen: one ring opening where the part is, as the tour's ring arrives. */
+.lx-chime {
+  position: absolute;
+  width: 3rem;
+  height: 3rem;
+  margin: -1.5rem;
+  border: 0.125rem solid var(--ring);
   border-radius: 50%;
-  border: 1px solid var(--edge);
-  background: var(--card);
+  opacity: 0;
 }
-.lr-st strong {
+.lx[data-run] .lx-chime {
+  animation: lx-chime 900ms var(--ease-out) 450ms both;
+}
+@keyframes lx-chime {
+  from {
+    transform: scale(0.4);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+.lx-swap {
+  display: grid;
+}
+.lx-swap > * {
+  grid-area: 1 / 1;
+  opacity: 0;
+  transition: opacity var(--dur-short) var(--ease-out);
+}
+.lx-swap > [data-on] {
+  opacity: 1;
+}
+.lx-capn {
+  padding: 0 0 0 1rem;
+  font-size: 0.875rem;
+  line-height: 1.375rem;
+}
+.lx-capn b {
   font-family: var(--serif);
+  font-size: 1.0625rem;
   font-weight: 400;
-  font-size: 1.875rem;
-  line-height: 1.1;
+}
+.lx-stopline {
+  align-self: start;
+  padding: 0.625rem 0.875rem;
+  border: 1px solid var(--hair);
+  border-left: 0.25rem solid var(--ring);
+  border-radius: 0.375rem 1rem 1rem 0.375rem;
+  background: var(--card);
+  font-weight: 500;
+  line-height: 1.375rem;
+}
+.lx-stopline b {
+  font-weight: 600;
+}
+/* Narrow: the reading takes the line's place. Wide: it comes in under it, as in the product. */
+.lx-readout,
+.lx-stopline:has(.lx-readout[data-on]) > span {
+  display: none;
+}
+.lx-readout[data-on] {
+  display: block;
+}
+
+/* The chart, drawn from the values Arc read; the student's pointer crosses it at a steady pace. */
+.lx-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.lx-t {
+  font: 500 12px var(--sans);
+  fill: var(--muted);
+}
+.lx-axis,
+.lx-s1,
+.lx-s2 {
+  fill: none;
+  stroke: var(--edge);
+  stroke-linejoin: round;
+}
+.lx-s1 {
+  stroke: var(--ink);
+  stroke-width: 2;
+}
+.lx-s2 {
+  stroke: var(--muted);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
+.lx-mouse {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 7.33%;
+  width: 91%;
+  transform: translateX(6.1%);
+  opacity: 0;
+  transition: opacity var(--dur-short) var(--ease-out);
+}
+.lx-mouse svg {
+  position: absolute;
+  top: 46%;
+  left: -0.125rem;
+  width: 1rem;
+}
+.lx-mouse path {
+  fill: var(--ink);
+  stroke: var(--card);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+[data-sweep] .lx-mouse {
+  transform: translateX(35.5%);
+  opacity: 1;
+  transition:
+    transform 2.8s linear,
+    opacity var(--dur-short) var(--ease-out); /* a steady sweep, in step with the note above */
+}
+
+/* What a screen reader lands on: a plain box, the markup it is given, and what is never said. */
+.lx-orig {
+  gap: 0.75rem;
+  padding: 1.25rem 1.5rem;
+}
+.lx-orig [data-box] {
+  outline: 0.1875rem solid var(--ink);
+  outline-offset: 0.25rem;
+  border-radius: 0.25rem;
+}
+.lx-orig .lx-capn {
+  justify-self: start;
+  padding: 0;
+}
+.lx-proof {
+  display: grid;
+  align-content: start;
+  gap: 0.75rem;
+}
+.lx-markup,
+.lx-verdict {
+  justify-self: start;
+  min-width: 0;
+  opacity: 0;
+  transition:
+    opacity var(--dur-short) var(--ease-out),
+    transform var(--dur-long) var(--ease-out);
+}
+.lx-markup {
+  padding: 0.25rem 0.625rem;
+  border: 1px solid var(--hair);
+  border-radius: 0.375rem;
+  background: var(--surface);
+  font-family: var(--lx-mono);
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  overflow-wrap: anywhere;
+}
+.lx-verdict {
+  font-family: var(--serif);
+  font-size: clamp(1.375rem, 1rem + 2cqi, 1.875rem);
+  line-height: 1.15;
+  transform: translateY(0.5rem);
+}
+:is(.lx-markup, .lx-verdict)[data-on] {
+  opacity: 1;
+  transform: none;
+}
+
+/* The lecture: its picture, and Arc's part of the transcript beside it. */
+.lx-lect {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem 1.25rem;
+}
+.lx-frame {
+  position: relative;
+  width: min(100%, var(--lx-h) - 7rem);
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 0.5rem;
+  line-height: 0;
+}
+.lx-frame svg {
+  display: block;
+  width: 200%;
+  height: auto;
+  margin: -11% 0 0 -50%; /* narrow stage: the pie alone, at a size its labels can be read */
+}
+.lx-board {
+  fill: var(--lx-board);
+}
+.lx-chalk {
+  font: 400 19px var(--sans);
+  fill: var(--lx-chalk);
+}
+.lx-slice {
+  stroke: var(--lx-board);
+  stroke-width: 1;
+}
+.lx-c0 {
+  fill: var(--lx-c0);
+}
+.lx-c1 {
+  fill: var(--lx-c1);
+}
+.lx-c2 {
+  fill: var(--lx-c2);
+}
+.lx-c3 {
+  fill: var(--lx-c3);
+}
+.lx-c4 {
+  fill: var(--lx-c4);
+}
+.lx-c5 {
+  fill: var(--lx-c5);
+}
+.lx-month {
+  font: 500 15px var(--sans);
+  fill: var(--lx-label);
+}
+.lx-hand {
+  fill: none;
+  stroke: var(--lx-hand);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0;
+  transition: opacity var(--dur-long) var(--ease-out);
+}
+[data-drawn] .lx-hand {
+  opacity: 1;
+}
+.lx-state {
+  position: absolute;
+  left: 0.5rem;
+  bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.125rem 0.625rem;
+  border-radius: 9999px;
+  background: var(--bg);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.25rem;
   color: var(--ink);
 }
-.lr-num {
-  margin: 0;
-  font-family: var(--serif);
-  font-style: italic;
-  font-size: 1.5rem;
-  line-height: 1.2;
-  color: var(--ring);
+.lx-state i {
+  width: 0.5rem;
+  height: 0.625rem;
+  border-inline: 0.1875rem solid currentColor;
 }
-.lr-job,
-.lr-more {
-  margin: 0;
+[data-play] .lx-state i {
+  border: 0;
+  background: currentColor;
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+.lx-part {
+  display: grid;
+  align-content: start;
+  min-width: 0;
+}
+.lx-said > span,
+.lx-said {
+  margin-bottom: 0.625rem;
+}
+.lx-shownote {
+  display: none;
+  padding: 0.5rem 0.75rem;
+  border-left: 0.1875rem solid var(--ring);
+  border-radius: 0.25rem 0.75rem 0.75rem 0.25rem;
+  background: var(--surface);
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+}
+.lx-lect .lx-said {
+  display: none;
+}
+@container stage (min-width: 38rem) {
+  .lx-pad.lx-orig:not(.lx-lect) {
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+    column-gap: 2rem;
+  }
+  .lx-orig > :is(.lx-pic, .lx-chart) {
+    width: 100%;
+  }
+  .lx-orig > .lx-capn {
+    grid-column: 1;
+  }
+  .lx-orig > .lx-proof {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+  .lx-lect {
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  }
+  .lx-lect .lx-said,
+  .lx-shownote {
+    display: block;
+  }
+}
+
+@container stage (min-width: 38rem) {
+  .lx-frame {
+    width: min(100%, calc((var(--lx-h) - 2rem) * 16 / 9));
+    aspect-ratio: auto;
+  }
+  .lx-frame svg {
+    width: 100%;
+    margin: 0;
+  }
+}
+
+/* The PDF: the formula as a picture would show it, and under it the words Arc says. */
+.lx-page[data-pdf] {
+  --n: 3;
+  --scroll: 0rem;
+}
+.lx-eqblock {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.375rem;
+  margin-bottom: var(--gap);
+}
+.lx-eq {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.625rem 0.875rem;
+  border-radius: 0.25rem;
+  background: var(--card);
+  font-family: var(--lx-math);
+  font-size: clamp(0.8125rem, 0.4rem + 2.2cqi, 1.3125rem);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.lx-orig .lx-eq {
+  border: 1px solid var(--hair);
+}
+.lx-frac {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 0 0.1em;
+  font-size: 0.9em;
+  vertical-align: middle;
+}
+.lx-frac > span:first-child {
+  padding: 0 0.3em 0.05em;
+  border-bottom: 1px solid currentColor;
+}
+.lx-root {
+  padding: 0.05em 0.1em 0;
+  border-top: 1px solid currentColor;
+}
+.lx-eqsay {
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  color: var(--muted);
+}
+.lx-page.lx-orig {
+  display: grid;
+  align-content: start;
+  padding: 1.25rem 1.5rem;
+}
+
+/* A typed question's answer: the strip that rises above the reader bar in the product. */
+.lx-answer {
+  position: absolute;
+  left: 1.25rem;
+  right: 1.25rem;
+  bottom: 1rem;
+  padding: 0.625rem 1rem 0.75rem;
+  border: 1px solid var(--edge);
+  border-left: 0.375rem solid var(--ring);
+  border-radius: 0.875rem;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  opacity: 0;
+  transform: translateY(120%);
+  transition:
+    transform var(--dur-long) var(--ease-out),
+    opacity var(--dur-short) var(--ease-out);
+}
+.lx-answer[data-on] {
+  opacity: 1;
+  transform: none;
+}
+.lx-answer span {
+  display: block;
+  font-size: 0.6875rem;
+  line-height: 1rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+@container stage (min-width: 38rem) {
+  .lx-page {
+    padding: 1.25rem 1.75rem 0 3.5rem;
+    --n: 3;
+    --scroll: 0rem;
+  }
+  .lx-long {
+    --n: 5;
+  }
+  .lx-pad {
+    padding: 1rem 1.25rem;
+  }
+  .lx-card .lx-pic,
+  .lx-chart {
+    overflow: visible;
+  }
+  .lx-pad :is(.lx-pic, .lx-chart) .lx-zoom {
+    width: auto;
+    transform: none;
+  }
+  .lx-readout,
+  .lx-stopline:has(.lx-readout[data-on]) > span {
+    display: block;
+  }
+  .lx-readout {
+    opacity: 0;
+    transition: opacity var(--dur-short) var(--ease-out);
+  }
+  .lx-readout[data-on] {
+    opacity: 1;
+  }
+}
+
+/* ---------- 3 and 4. Keys, the pipeline, the stack ---------- */
+
+.lp-keys {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+  column-gap: 3.5rem;
+  margin-top: 1.5rem;
+}
+.lp-keys li {
+  display: grid;
+  grid-template-columns: 7rem minmax(0, 1fr);
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--hair);
+  font-size: 1rem;
+  line-height: 1.5rem;
+}
+.lp-keys span {
+  display: flex;
+  gap: 0.375rem;
+}
+.lp-say {
+  margin: 1.5rem 0 0;
+  max-width: 46rem;
+  color: var(--muted);
+}
+.lp-say q {
+  font-family: var(--serif);
+  font-size: 1.25rem;
+  color: var(--ink);
+}
+
+.lp-pipe {
+  margin-top: 2rem;
+}
+.lp-pipe ol {
+  display: grid;
+  gap: 2rem;
+}
+.lp-pipe li {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 0.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--edge);
+}
+.lp-pipe li > i {
+  position: absolute;
+  top: -0.4375rem;
+  left: 0;
+  width: 0.8125rem;
+  height: 0.8125rem;
+  border-radius: 50%;
+  background: var(--ring);
+}
+.lp-pipe strong {
+  font-family: var(--serif);
+  font-size: 1.75rem;
+  font-weight: 400;
+  line-height: 1.1;
+}
+.lp-pipe span {
   font-size: 0.9375rem;
   line-height: 1.5rem;
   color: var(--muted);
 }
-.lr-more {
-  color: var(--ink);
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--hair);
+.lp-pipe small {
+  justify-self: start;
+  padding: 0.125rem 0.5rem;
+  border: 1px solid var(--hair);
+  border-radius: 0.375rem;
+  background: var(--card);
+  font-family: var(--lx-mono);
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+  overflow-wrap: anywhere;
 }
-.lr-track,
-.lr-marker {
-  display: none;
+/* One entrance, once, when the visitor gets here: the four steps arrive in order. */
+.lp-pipe[data-seen] li {
+  animation: lx-in var(--dur-long) var(--ease-out) calc(var(--i) * 140ms) both;
 }
-
-/* Wide: a horizontal track, five stations, the ring travelling along it. */
-@media (min-width: 64rem) {
-  .lr-trace ol {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-  .lr-track,
-  .lr-marker {
-    display: block;
-    position: absolute;
-    pointer-events: none;
-  }
-  /* Node centre: station padding 1.25rem + node margin 0.6875rem + half the node. */
-  .lr-track {
-    top: 2.375rem;
-    left: 1.6875rem;
-    width: calc(80% + 0.4rem);
-    border-top: 1px solid var(--edge);
-    z-index: 1;
-  }
-  .lr-marker {
-    top: 2.375rem;
-    left: 1.6875rem;
-    width: 2.25rem;
-    height: 2.25rem;
-    margin: -1.125rem 0 0 -1.125rem;
-    border: 3px solid var(--ring);
-    border-radius: 50%;
-    box-sizing: border-box;
-    z-index: 2;
-    animation: lr-pipe-marker 10s var(--ease) infinite both;
-  }
-  .lr-st .lr-node {
-    position: relative;
-    z-index: 2;
-  }
-  .lr-more {
-    opacity: 0;
-    transform: translateY(0.375rem);
-    transition:
-      opacity 0.5s var(--ease),
-      transform 0.5s var(--ease);
-  }
+.lp-pipe[data-seen] li > i {
+  animation: lp-dot var(--dur-long) var(--ease-out) calc(var(--i) * 140ms + 200ms) both;
 }
-/* Marker positions: node centre of station n = n/5 of the width plus the node offset (gap ignored: 0.5rem). */
-@keyframes lr-pipe-marker {
+@keyframes lp-travel {
   0%,
-  16% {
-    left: 1.6875rem;
-    opacity: 1;
+  12% {
+    transform: translateX(0);
   }
-  20%,
-  36% {
-    left: calc(20% + 1.8rem);
-  }
-  40%,
-  56% {
-    left: calc(40% + 1.9rem);
+  30%,
+  42% {
+    transform: translateX(25cqi);
   }
   60%,
-  76% {
-    left: calc(60% + 2rem);
+  72% {
+    transform: translateX(50cqi);
   }
-  80%,
-  94% {
-    left: calc(80% + 2.1rem);
-    opacity: 1;
-  }
-  97% {
-    left: calc(80% + 2.1rem);
-    opacity: 0;
-  }
+  90%,
   100% {
-    left: 1.6875rem;
-    opacity: 0;
+    transform: translateX(75cqi);
   }
 }
-
-/* Each station lights in turn (2 s each). */
-.lr-st::before,
-.lr-st .lr-node,
-.lr-st .lr-num {
-  animation: lr-pipe-lit 10s var(--ease) infinite both;
-  animation-delay: calc(var(--i) * 2s - 10s);
-}
-.lr-st .lr-node {
-  animation-name: lr-pipe-node;
-}
-.lr-st .lr-num {
-  animation-name: lr-pipe-num;
-}
-@keyframes lr-pipe-lit {
-  0%,
-  18% {
-    opacity: 1;
-  }
-  22%,
-  100% {
-    opacity: 0;
+@keyframes lp-dot {
+  from {
+    transform: scale(0);
   }
 }
-@keyframes lr-pipe-node {
-  0%,
-  18% {
-    background: var(--ring);
-    border-color: var(--ring);
-  }
-  22%,
-  100% {
-    background: var(--card);
-    border-color: var(--edge);
-  }
+.lp-stack {
+  margin-top: 1.25rem;
 }
-@keyframes lr-pipe-num {
-  0%,
-  18% {
-    opacity: 1;
-  }
-  22%,
-  100% {
-    opacity: 0.35;
-  }
-}
-
-/* Pointing at a station, or focusing it, stops the trace there and opens its two extra lines. */
-.lr-trace:has(.lr-st:hover, .lr-pick:focus) :is(.lr-marker, .lr-node, .lr-num),
-.lr-trace:has(.lr-st:hover, .lr-pick:focus) .lr-st::before {
-  animation: none;
-}
-.lr-trace:has(.lr-st:hover, .lr-pick:focus) .lr-num {
-  opacity: 0.35;
-}
-.lr-st:is(:hover, :has(.lr-pick:focus))::before {
-  opacity: 1;
-}
-.lr-st:is(:hover, :has(.lr-pick:focus)) .lr-node {
-  background: var(--ring);
-  border-color: var(--ring);
-}
-.lr-trace .lr-st:is(:hover, :has(.lr-pick:focus)) .lr-num,
-.lr-st:is(:hover, :has(.lr-pick:focus)) .lr-more {
-  opacity: 1;
-  transform: none;
-}
-.lr-trace:has(.lr-st:nth-child(1):is(:hover, :has(.lr-pick:focus))) .lr-marker {
-  left: 1.6875rem;
-}
-.lr-trace:has(.lr-st:nth-child(2):is(:hover, :has(.lr-pick:focus))) .lr-marker {
-  left: calc(20% + 1.8rem);
-}
-.lr-trace:has(.lr-st:nth-child(3):is(:hover, :has(.lr-pick:focus))) .lr-marker {
-  left: calc(40% + 1.9rem);
-}
-.lr-trace:has(.lr-st:nth-child(4):is(:hover, :has(.lr-pick:focus))) .lr-marker {
-  left: calc(60% + 2rem);
-}
-.lr-trace:has(.lr-st:nth-child(5):is(:hover, :has(.lr-pick:focus))) .lr-marker {
-  left: calc(80% + 2.1rem);
-}
-
-/* ----- Keys and voice, side by side on wide screens ----- */
-@media (min-width: 68.75rem) {
-  .lr-pair {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 4rem;
-    border-bottom: 1px solid var(--hair);
-  }
-  .landing .lr-pair .landing-block {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 2rem;
-    border-bottom: 0;
-  }
-  .landing .lr-pair .landing-block h2 {
-    position: static;
-  }
-}
-@media (min-width: 48rem) {
-  .landing .lr-pair .landing-keys li {
-    grid-template-columns: 11.5rem minmax(0, 1fr);
-  }
-}
-.lr-also {
-  margin: 1rem 0 0;
-  padding-top: 1rem;
+.lp-stack > div {
+  display: grid;
+  gap: 0.25rem 2rem;
+  padding: 1rem 0;
   border-top: 1px solid var(--hair);
+}
+.lp-stack dt {
+  font-family: var(--serif);
+  font-size: 1.5rem;
+  line-height: 1.2;
+}
+.lp-stack dd {
+  max-width: 44rem;
+  font-size: 1rem;
+  line-height: 1.625rem;
   color: var(--muted);
 }
+.lp-credit {
+  margin: 3rem 0 0;
+  max-width: 52rem;
+  font-size: 0.8125rem;
+  line-height: 1.375rem;
+  color: var(--muted);
+}
+@container landing (min-width: 52rem) {
+  .lp-pipe {
+    container-type: inline-size;
+  }
+  .lp-pipe ol {
+    position: relative;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0;
+  }
+  /* The link on its way: Arc's ring travels the line once, stopping at each step, and rests on the last. */
+  .lp-pipe ol::before {
+    content: "";
+    position: absolute;
+    top: -0.8125rem;
+    left: -0.375rem;
+    width: 1.625rem;
+    height: 1.625rem;
+    border: 0.1875rem solid var(--ring);
+    border-radius: 50%;
+    transform: translateX(75cqi);
+  }
+  .lp-pipe[data-seen] ol::before {
+    animation: lp-travel 2.8s var(--ease-in-out) 200ms both;
+  }
+  .lp-pipe li {
+    padding-right: 2rem;
+  }
+  .lp-stack > div {
+    grid-template-columns: 16rem minmax(0, 1fr);
+    align-items: baseline;
+  }
+}
 
-/* ----- Quiet: pause what is off screen; stills under reduced motion ----- */
-:is(.lr-art, .lr-trace):not([data-run]) *,
-.lr-trace:not([data-run]) .lr-st::before {
-  animation-play-state: paused !important;
-}
-@media (prefers-reduced-motion: reduce) {
-  .lr-art *,
-  .lr-trace *,
-  .lr-st::before {
-    animation: none !important;
-    transition: none !important;
-  }
-  .lr-st::before,
-  .lr-more {
-    opacity: 1 !important;
-    transform: none !important;
-  }
-  .lr-st .lr-node {
-    background: var(--ring);
-    border-color: var(--ring);
-  }
-  .lr-marker {
-    display: none !important;
-  }
-}
-:root[data-motion="reduce"] :is(.lr-art *, .lr-trace *),
-:root[data-motion="reduce"] .lr-st::before {
+/* ---------- Still: reduced motion (the system's, or Arc's own Display option) ---------- */
+
+.lx[data-calm] *,
+:root[data-motion="reduce"] .landing :is(*, *::before, *::after) {
   animation: none !important;
   transition: none !important;
 }
-:root[data-motion="reduce"] .lr-st::before,
-:root[data-motion="reduce"] .lr-more {
-  opacity: 1 !important;
-  transform: none !important;
+@media (prefers-reduced-motion: reduce) {
+  .landing :is(*, *::before, *::after) {
+    animation: none !important;
+    transition: none !important;
+  }
 }
-:root[data-motion="reduce"] .lr-st .lr-node {
-  background: var(--ring);
-  border-color: var(--ring);
-}
-:root[data-motion="reduce"] .lr-marker {
-  display: none !important;
-}
-
-.lr-sr {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
-/* Large text (Arc's 150% and 200%): the trace stacks with every line shown; the pictures go one per row at 200%. */
-:root:is([data-text="150"], [data-text="200"]) .lr-trace ol {
-  grid-template-columns: minmax(0, 1fr);
-}
-:root:is([data-text="150"], [data-text="200"]) :is(.lr-track, .lr-marker) {
-  display: none;
-}
-:root:is([data-text="150"], [data-text="200"]) .lr-more {
-  opacity: 1;
-  transform: none;
-}
-:root[data-text="200"] .lr-grid,
-:root[data-text="200"] .lr-pair {
-  grid-template-columns: minmax(0, 1fr);
-}
-/* High contrast: the hairline is solid ink, so lighten body lines and keep headings strongest. */
-:root:is([data-theme="contrast"], [data-theme="contrast-dark"])
-  :is(.lr-bar, .lr-seg, .lr-track) {
-  opacity: 0.4;
-}
-:root:is([data-theme="contrast"], [data-theme="contrast-dark"])
-  .lr-bar.lr-head {
-  fill: var(--ink);
-  opacity: 1;
+/* High contrast: the hairline is solid ink there, so the bands need a little more colour to read as bands. */
+:root:is([data-theme="contrast"], [data-theme="contrast-dark"]) .landing {
+  --band: color-mix(in srgb, var(--ring) 24%, var(--bg));
+  --band-say: color-mix(in srgb, var(--ring) 45%, var(--bg));
 }

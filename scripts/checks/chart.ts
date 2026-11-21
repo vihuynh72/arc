@@ -1,6 +1,7 @@
 // Offline: the code-built chart tour, the scrub's interpolation and the pitch mapping.
 import assert from "node:assert";
 import { brief, chartTour, cleanChart, COULD_NOT_READ, countPeaks, pitch, pointLine, reading, relation, spoken, valueAt, xAtPointer } from "../../lib/chart";
+import { stopLine } from "../../lib/cues";
 import type { Tour } from "../../lib/types";
 
 /** The owner's limit: every stop and overview at most two sentences of at most 15 words. */
@@ -64,7 +65,10 @@ export default function check() {
   const pie = chartTour(cleanChart({ chart_type: "pie", plot_area: P, series: [{ name: "Slices", points: [{ x: 0, y: 10, label: "B" }, { x: 1, y: 30, label: "A" }, { x: 2, y: 10, label: "C" }] }] })!, info, "x");
   assert.equal(pie.chart, undefined);
   assert.deepEqual(pie.stops.map((s) => s.label), ["Main finding", "Slices", "A", "B", "C"]);
-  assert.equal(pie.stops[2].says, "About 60 percent, the largest slice.");
+  assert.equal(pie.stops[2].says, "About 60 percent, the largest slice, at about 6 o'clock.");
+  // A pie says where each slice is as a clock position, and its tour lines carry no "move left" or "move down".
+  assert.equal(stopLine(pie.stops, 3), "B. About 20 percent, at about 1 o'clock.");
+  assert.ok(pie.stops.every((_, k) => !/\b(move|start at)\b/i.test(stopLine(pie.stops, k))), "no directions on a pie");
   // Box: groups by median, a group with quartiles out of order is dropped.
   const box = chartTour(cleanChart({ chart_type: "box", y_axis: { label: "score", min: 0, max: 100 }, plot_area: P, series: [], boxes: [
     { label: "Low", min: 10, q1: 20, median: 30, q3: 40, max: 50 },
@@ -87,6 +91,12 @@ export default function check() {
   // Every built tour above keeps the owner's limit.
   [t, bt, bar, sc, pie, box, hm, none].forEach(short);
   assert.equal(brief("One two three four five six seven eight nine ten, eleven twelve thirteen fourteen fifteen sixteen. Second. Third."), "One two three four five six seven eight nine ten. Second.");
+  // A long sentence is cut at a clause end or not at all: this one once came out as "..., while June." (cut at the "and").
+  assert.equal(brief("January is the best month for sales at 18%, while June and July are the lowest."), "January is the best month for sales at 18%.");
+  const noClause = "Sales rose steadily across every single month of the year without any dips until reaching the final peak in December.";
+  assert.equal(brief(noClause), noClause, "no clause end to cut at: the sentence is kept whole");
+  assert.equal(brief("Sales rose steadily across every single month of the year without any dips, reaching the final peak in December at last."), "Sales rose steadily across every single month of the year without any dips.");
+  for (const x of [noClause, "One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen, seventeen eighteen."]) assert.ok(/[.!?]$/.test(brief(x)) && !/\b(while|and|the|a|of|to)\.$/.test(brief(x)));
 
   // 1. Numbers by significant figures, said as a person would; a log axis maps boxes, pointer and pitch by log(value).
   assert.equal(spoken(316574), "317 thousand");
@@ -128,8 +138,8 @@ export default function check() {
     { x: 0, y: 45, label: "Tubular", printed: true, note: "M: 2%" }, { x: 1, y: 6, label: "Tubulovillous", printed: true }, { x: 2, y: 1, label: "Villous", printed: true },
     { x: 3, y: 8, label: "Other", printed: true }, { x: 4, y: 2, label: "Carcinoma", printed: true }, { x: 5, y: 5, label: "Others", printed: true }, { x: 6, y: 35, label: "Hyperplastic", printed: true }] }] })!, info, "x");
   short(pp);
-  assert.equal(pp.stops.find((s) => s.label === "Tubular")!.says, "45 percent, the largest slice. Also printed: M: 2%.");
-  assert.equal(pp.stops.find((s) => s.label === "Hyperplastic")!.says, "35 percent.");
+  assert.equal(pp.stops.find((s) => s.label === "Tubular")!.says, "45 percent, the largest slice, at about 3 o'clock. Also printed: M: 2%.");
+  assert.equal(pp.stops.find((s) => s.label === "Hyperplastic")!.says, "35 percent, at about 10 o'clock.");
   const wedges = pp.stops.slice(2, 9).map((s) => s.box_2d.join());
   assert.equal(new Set(wedges).size, 7);
 

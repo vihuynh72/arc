@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Allow Arc to read this site?</title>
+    <link rel="stylesheet" href="pages.css" />
+  </head>
+  <body>
+    <main>
+      <h1 id="q">Let Arc read pages from <span id="site">this site</span> that you open?</h1>
+      <p id="what">Arc reads them in your own browser, where you are signed in, and never sees your password. You can take this back in the extension's options.</p>
+      <button id="allow" class="primary" type="button" autofocus aria-describedby="what">Allow</button>
+      <button id="no" type="button">Not now</button>
+      <p id="status" role="status"></p>
+    </main>
+    <script src="consent.js" type="module"></script>
+  </body>
+</html>

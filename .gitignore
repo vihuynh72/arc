@@ -30,8 +30,9 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files: only the example (names, no values) is kept
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -47,3 +48,9 @@ next-env.d.ts
 CLAUDE.md
 AGENTS.md
 .impeccable/
+
+# blind-student harness session logs
+scripts/blind/logs/
+
+# editor and merge leftovers
+*.orig

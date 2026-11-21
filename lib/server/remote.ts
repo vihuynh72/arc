@@ -1,5 +1,19 @@
 // One Bright Data Browser API session kept on globalThis. Read-only: it navigates, scrolls and screenshots, never clicks.
 import { chromium, type Browser, type Page } from "playwright-core";
+import { checkBrightData, recordBrightData, recordBrowserSeconds } from "./budget";
+import { BlockedUrl, checkUrl } from "./safeFetch";
+
+/** Counting for lib/server/budget.ts: connected seconds land when the session ends. */
+export const timed = (b: Browser) => {
+  const t = Date.now();
+  b.on("disconnected", () => recordBrowserSeconds((Date.now() - t) / 1000));
+  return b;
+};
+/** Before every Browser API navigation: today's cap (throws BudgetError), then one counted navigation. */
+export const navigation = () => {
+  checkBrightData("browserNav");
+  recordBrightData("browserNav");
+};
 
 type Remote = { browser: Browser; page: Page; url: string | null; timer: NodeJS.Timeout };
 const g = globalThis as unknown as { __arcRemote?: Promise<Remote>; __arcRemoteQueue?: Promise<unknown>; __arcRemoteSeq?: number };
@@ -20,7 +34,7 @@ export class Superseded extends Error {}
 async function open(): Promise<Remote> {
   const wss = process.env.BRIGHTDATA_BROWSER_WSS;
   if (!wss) throw new Error("Bright Data browser is not configured");
-  const browser = await chromium.connectOverCDP(wss, { timeout: 45_000 });
+  const browser = timed(await chromium.connectOverCDP(wss, { timeout: 45_000 }));
   const ctx = browser.contexts()[0] ?? (await browser.newContext());
   const page = ctx.pages()[0] ?? (await ctx.newPage());
   await page.setViewportSize({ width: 1280, height: 800 }).catch(() => {});
@@ -51,6 +65,8 @@ const session = () => {
 async function ready(url: string): Promise<Page> {
   const r = await session();
   if (r.url !== url) {
+    if (!(await checkUrl(url)).ok) throw new BlockedUrl("private"); // never point the browser at an address Arc refuses
+    navigation();
     await r.page.goto(url, { waitUntil: "domcontentloaded", timeout: 60_000 });
     await r.page.waitForLoadState("load", { timeout: 8_000 }).catch(() => {}); // the article re-renders around here
     // The site scrolls smoothly, which makes boxes move under us; jump instantly instead. The cookie banner is hidden, not clicked, so it does not cover the page.
@@ -138,3 +154,101 @@ export const remoteWarm = (url: string) => queue(async () => void (await ready(u
 
 /** Connects the Bright Data browser at boot so the first live view does not pay the connect; a dead session reopens lazily on the next call. */
 export const remoteConnect = () => queue(async () => void (await session()));
+
+// Rendering for lib/server/fetch.ts: pages whose HTML has no content until JavaScript runs (Khan Academy articles) or that a
+// challenge guards. Own sessions, so the remote view above is never navigated away. A Bright Data session may only navigate
+// within one domain (navigate_domains_limit), so each host gets its own warm session (at most MAX_RENDER, oldest closed first),
+// and renders on one host run one at a time.
+type Render = { browser: Browser; page: Page; timer: NodeJS.Timeout; queue: Promise<unknown>; used: number };
+const r = globalThis as unknown as { __arcRenders?: Map<string, Promise<Render>> };
+const renders: Map<string, Promise<Render>> = (r.__arcRenders ??= new Map());
+const MAX_RENDER = 3;
+
+async function openRender(host: string): Promise<Render> {
+  const wss = process.env.BRIGHTDATA_BROWSER_WSS;
+  if (!wss) throw new Error("Bright Data browser is not configured");
+  const browser = timed(await chromium.connectOverCDP(wss, { timeout: 30_000 }));
+  const ctx = browser.contexts()[0] ?? (await browser.newContext());
+  const page = ctx.pages()[0] ?? (await ctx.newPage());
+  await page.setViewportSize({ width: 1280, height: 900 }).catch(() => {});
+  let flip = 1;
+  const timer = setInterval(() => {
+    page.mouse.move(300 + flip * 40, 300).then(() => page.mouse.wheel(0, flip)).catch(() => {}); // real input keeps the session alive
+    flip = -flip;
+  }, 90_000);
+  timer.unref();
+  browser.on("disconnected", () => {
+    clearInterval(timer);
+    renders.delete(host);
+  });
+  return { browser, page, timer, queue: Promise.resolve(), used: Date.now() };
+}
+
+function sessionFor(host: string): Promise<Render> {
+  let s = renders.get(host);
+  if (!s) {
+    if (renders.size >= MAX_RENDER) {
+      const oldest = [...renders.keys()][0];
+      renders.get(oldest)?.then((x) => x.browser.close()).catch(() => {});
+      renders.delete(oldest);
+    }
+    s = openRender(host).catch((e) => {
+      renders.delete(host);
+      throw e;
+    });
+    renders.set(host, s);
+  } else {
+    renders.delete(host); // most recently used goes last
+    renders.set(host, s);
+  }
+  return s;
+}
+
+/** The page's HTML after its scripts ran and its lazy images were scrolled into view. Throws when the session or page fails. */
+export async function renderHtml(url: string, budgetMs = 25_000): Promise<{ html: string; status: number | null }> {
+  const t = Date.now();
+  const c = await checkUrl(url);
+  if (!c.ok) throw new BlockedUrl(c.why); // never point the browser at an address Arc refuses
+  const s = await sessionFor(new URL(url).hostname.replace(/^www\./, ""));
+  const job = async () => {
+    const { page } = s;
+    const left = () => Math.max(1000, budgetMs - (Date.now() - t));
+    navigation();
+    const res = await page.goto(url, { waitUntil: "domcontentloaded", timeout: left() });
+    // Main content: enough text in the main container (a JavaScript app fills it after load).
+    await page
+      .waitForFunction(`(() => { const m = document.querySelector("main,article,[role=main]") || document.body; return m && m.innerText.length > 1200; })()`, undefined, { timeout: Math.min(12_000, left()) })
+      .catch(() => {});
+    // Lazy images load on real scroll input; step down the page.
+    await page.mouse.move(400, 400).catch(() => {});
+    for (let k = 0; k < 10 && Date.now() - t < budgetMs - 2000; k++) {
+      await page.mouse.wheel(0, 1600).catch(() => {});
+      await page.waitForTimeout(200);
+    }
+    await page.waitForTimeout(400);
+    return { html: await page.content(), status: res?.status() ?? null };
+  };
+  const next = s.queue.then(job);
+  s.queue = next.catch(() => {});
+  return next;
+}
+
+// Restored for lib/server/videoFrames.ts (its Bright Data route): a Browser API connection of its own, kept on globalThis and
+// reopened after a disconnect. Not the remote view's session and not the render sessions above.
+const vf = globalThis as unknown as { __arcFramesBrowser?: Promise<Browser> };
+export function remoteBrowser(): Promise<Browser> {
+  const wss = process.env.BRIGHTDATA_BROWSER_WSS;
+  if (!wss) return Promise.reject(new Error("Bright Data browser is not configured"));
+  vf.__arcFramesBrowser ??= chromium.connectOverCDP(wss, { timeout: 30_000 }).then(
+    (b) => {
+      timed(b);
+      b.on("disconnected", () => (vf.__arcFramesBrowser = undefined));
+      return b;
+    },
+    (e) => {
+      vf.__arcFramesBrowser = undefined;
+      throw e;
+    },
+  );
+  return vf.__arcFramesBrowser;
+}

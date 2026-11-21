@@ -1,74 +1,20 @@
-// Gemini watches a public YouTube video and returns chapters with short segments, as a Twin.
-import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { GEMINI_VIDEO_MODELS } from "../models";
+// A YouTube (or Khan Academy) video as a Twin. Default, official route: Gemini reads the video itself (fileData with
+// videoMetadata windows, lib/server/videoQueue.ts); the twin is served with the first window and the rest arrives through
+// /api/video/shown. Title from YouTube oEmbed. Opt-in fast path (ARC_CAPTIONS=unofficial): YouTube's own captions, cut into
+// segments in code (lib/server/captions.ts); with no captions or a refusal it falls back to the Gemini route.
+import { withLang } from "../parse/lang";
+import { refusalLine } from "./budget";
 import type { Twin, TwinNode } from "../types";
-import { generateJsonChain } from "./gemini";
+import { clock, fetchCues, pickTrack, player, segmentCues } from "./captions";
+import { isKhanVideo, khanVideo } from "./khan";
 import { youtubeCanonical, youtubeId, youtubeOembed } from "./oembed";
+import { firstWindow, job, status } from "./videoQueue";
 
-const MAX_SECONDS = 11 * 60; // "about 10 minutes"
-
-export const PROMPT = `Watch this video and build an outline a blind student can move through with the keyboard.
-Group it into chapters (2 to 6), and under each chapter give short segments (each 10 to 30 seconds, in time order, not overlapping). Cover the video from the first second to the last with no gaps: the first segment starts at 0, each segment starts where the one before ends, the last ends at the end of the video. About one segment per 20 seconds, at least 6 segments in all.
-For each chapter: title and summary (ONE sentence).
-For each segment:
-- start and end: integer seconds from the start of the video.
-- heading: a few words.
-- said: one or two sentences of what the speaker says.
-- shown: what is visible on screen that the speaker does not say. A blind student will hear this as fact, so an invented description is worse than none. Rules:
-  * Describe only what is visible in the frames of this segment, never what a slide "probably" lists or what would usually be there.
-  * When there is TEXT on screen (a slide, a title, labels on a chart, a formula, code), quote the important words exactly as written, in quotation marks, in the shortest useful form.
-  * Name letters, numbers and labels ONLY if they are legible on screen.
-  * For a chart or graph: say what kind it is, the axis labels as printed, and the trend. Give no values unless they are printed on it.
-  * When the picture is only a person talking with nothing else, write exactly: The speaker, no slides.
-  * When you are not sure what is on screen, write exactly: Unclear on screen. Do not describe it.
-- shown_confidence: "high" if you read or clearly saw what you wrote in shown, "low" if you are unsure of any of it.
-Also give total_seconds: the video's total length in seconds.`;
-
-export const SCHEMA = {
-  type: "OBJECT",
-  properties: {
-    title: { type: "STRING" },
-    total_seconds: { type: "NUMBER" },
-    chapters: {
-      type: "ARRAY",
-      items: {
-        type: "OBJECT",
-        properties: {
-          title: { type: "STRING" },
-          summary: { type: "STRING" },
-          segments: {
-            type: "ARRAY",
-            items: {
-              type: "OBJECT",
-              properties: {
-                start: { type: "NUMBER" },
-                end: { type: "NUMBER" },
-                heading: { type: "STRING" },
-                said: { type: "STRING" },
-                shown: { type: "STRING" },
-                shown_confidence: { type: "STRING", enum: ["high", "low"] },
-              },
-              required: ["start", "end", "heading", "said", "shown", "shown_confidence"],
-            },
-          },
-        },
-        required: ["title", "summary", "segments"],
-      },
-    },
-  },
-  required: ["title", "total_seconds", "chapters"],
-};
-
-type Seg = { start: number; end: number; heading: string; said: string; shown: string; shown_confidence?: string };
-type Raw = {
-  title: string;
-  total_seconds: number;
-  chapters: { title: string; summary: string; segments: Seg[] }[];
-};
+type VideoTwin = Twin & { video: NonNullable<Twin["video"]> };
+const FIRST_WAIT_MS = 3_500; // the first window takes about 2 s; past this the twin goes out with what it has and fills by polling
 
 export function isVideoUrl(url: string): boolean {
-  return /youtube\.com|youtu\.be|\.(mp4|webm|mov)(\?|$)/i.test(url);
+  return /youtube\.com|youtu\.be|\.(mp4|webm|mov)(\?|$)/i.test(url) || isKhanVideo(url);
 }
 
 /** A message that is already one plain sentence a listener can act on. */
@@ -76,7 +22,7 @@ class VideoError extends Error {}
 
 const E_OPEN = "I could not open that video. It may be private or removed.";
 const E_RESTRICTED = "I could not read that video. Its owner may have restricted access to it.";
-const E_MODEL = "I could not outline that video just now. Try again in a minute.";
+const E_MODEL = "I could not read that video just now. Try again in a minute.";
 
 /** Map any failure to one short sentence; the raw error never reaches the listener. */
 export function plainVideoError(e: unknown): string {
@@ -87,124 +33,79 @@ export function plainVideoError(e: unknown): string {
   return E_MODEL;
 }
 
-const unescapeHtml = (t: string) =>
-  t.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").trim();
-
-/** Length and title from the YouTube watch page; null if the page could not be fetched at all. */
-async function watchPage(url: string): Promise<{ seconds: number | null; title: string | null } | null> {
+export async function videoToTwin(url: string): Promise<VideoTwin> {
   try {
-    const res = await fetch(url, {
-      headers: { "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36", "accept-language": "en-US,en;q=0.9" },
-      signal: AbortSignal.timeout(10_000),
-    });
-    const html = await res.text();
-    const len = html.match(/"lengthSeconds":"(\d+)"/);
-    const t = html.match(/<meta property="og:title" content="([^"]*)"/);
-    return { seconds: len ? Number(len[1]) : null, title: t && unescapeHtml(t[1]) ? unescapeHtml(t[1]) : null };
-  } catch {
-    return null;
-  }
-}
-
-const mmss = (n: number) => `${Math.floor(n / 60)}:${String(Math.round(n % 60)).padStart(2, "0")}`;
-
-/** Stretches the outline skips: before a first segment later than 20 s, between segments more than 45 s apart, after a last one ending over 30 s early. */
-export function coverageGaps(segs: { start: number; end: number }[], total: number): { start: number; end: number }[] {
-  if (!segs.length) return [];
-  const gaps: { start: number; end: number }[] = [];
-  if (segs[0].start > 20) gaps.push({ start: 0, end: segs[0].start });
-  for (let i = 1; i < segs.length; i++) if (segs[i].start - segs[i - 1].end > 45) gaps.push({ start: segs[i - 1].end, end: segs[i].start });
-  const last = segs[segs.length - 1];
-  if (total - last.end > 30) gaps.push({ start: last.end, end: total });
-  return gaps;
-}
-
-export const gapText = (g: { start: number; end: number }) => `No outline for ${mmss(g.start)} to ${mmss(g.end)}.`;
-
-/** What the student hears for a segment's picture: doubt is spoken, not hidden. */
-export function shownText(s: { shown: string; shown_confidence?: string }): string {
-  const t = s.shown.trim();
-  return s.shown_confidence === "low" && !/^unclear on screen/i.test(t) ? `Possibly: ${t}` : t;
-}
-
-export async function videoToTwin(url: string): Promise<Twin> {
-  try {
-    return await outline(url);
+    let id = youtubeId(url);
+    let title: string | null = null;
+    if (!id && isKhanVideo(url)) {
+      const k = await khanVideo(url);
+      if (!k) throw new VideoError("I could not find the video on that Khan Academy page.");
+      ({ id, title } = k);
+    }
+    if (!id) throw new VideoError("Only public YouTube and Khan Academy video links are supported.");
+    if (process.env.ARC_CAPTIONS === "unofficial") {
+      const fast = await fromCaptions(id, url, title).catch((e) => {
+        if (e instanceof VideoError) throw e;
+        console.log(`[video] ${id}: captions route unavailable (${e instanceof Error ? e.message : e}); Gemini reads the video`);
+        return null;
+      });
+      if (fast) return fast;
+    }
+    return await fromGemini(id, url, title);
   } catch (e) {
     if (!(e instanceof VideoError)) console.log(`[video] ${url}: ${e instanceof Error ? e.message : e}`);
     throw new Error(plainVideoError(e));
   }
 }
 
-async function outline(url: string): Promise<Twin> {
-  const id = youtubeId(url);
-  if (!id) throw new VideoError("Only public YouTube links are supported for video.");
-  const canonical = youtubeCanonical(id);
-  const hash = createHash("sha1").update(canonical).digest("hex");
-  // Canonical key first, then the key older copies were saved under (the raw link).
-  for (const key of [hash, createHash("sha1").update(url).digest("hex")]) {
-    try {
-      const twin: Twin = JSON.parse(await readFile(`.cache/video/${key}.json`, "utf8"));
-      if (key !== hash) await writeFile(`.cache/video/${hash}.json`, JSON.stringify(twin)).catch(() => {}); // later links to this video find it
-      return { ...twin, source: { ...twin.source, url } };
-    } catch {}
-  }
+async function twinOf(id: string, url: string, title: string, t0: number, captions: VideoTwin["video"]["captions"], via: Twin["source"]["via"]): Promise<VideoTwin> {
+  const s = await status(id);
+  return withLang({
+    id: `v-${id}`,
+    source: { url, kind: "video", title, via, ms: Date.now() - t0 },
+    nodes: s.segments,
+    counts: { sections: 0, figures: 0, segments: s.segments.length },
+    video: { id, duration: s.duration, captions, enriched: s.done },
+  });
+}
 
+/** Official route. A removed or private video has no oEmbed: one plain line, no model call. */
+async function fromGemini(id: string, url: string, khanTitle: string | null): Promise<VideoTwin> {
   const t0 = Date.now();
-  const page = await watchPage(canonical);
-  if (page && page.seconds === null && !page.title) throw new VideoError(E_OPEN);
-  const known = page?.seconds ?? null;
-  const tooLong = (n: number, about = "") =>
-    new VideoError(`This video is ${about}${Math.round(n / 60)} minutes long. Arc outlines videos of about 10 minutes or less.`);
-  if (known && known > MAX_SECONDS) throw tooLong(known);
-  const title = page?.title ?? (await youtubeOembed(canonical, AbortSignal.timeout(5_000)).catch(() => null))?.title ?? null;
+  const canonical = youtubeCanonical(id);
+  // oEmbed first (about 0.1 s): a removed or private video must not start a job or a model call.
+  const meta = await youtubeOembed(canonical, AbortSignal.timeout(5_000)).catch(() => null);
+  if (!meta) throw new VideoError(E_OPEN);
+  const j = await job(id, canonical);
+  await firstWindow(j, FIRST_WAIT_MS);
+  const no = refusalLine();
+  if (no && !(await status(id)).segments.length) throw new VideoError(no); // nothing stored and no budget to read it
+  return twinOf(id, url, khanTitle || meta.title, t0, j.source === "captions" ? "human" : "none", "gemini");
+}
 
-  const { data: raw } = await generateJsonChain<Raw>([{ text: PROMPT }, { fileData: { fileUri: canonical } }], SCHEMA, GEMINI_VIDEO_MODELS, 100_000);
-  const total = known ?? raw.total_seconds;
-  if (total > MAX_SECONDS) throw tooLong(total, "about ");
-
-  // Keep valid segments in time order, per chapter.
-  let prevStart = -1;
-  const chapters = raw.chapters
-    .map((ch) => ({
-      ch,
-      good: ch.segments.filter((s) => {
-        const ok = s.start >= 0 && s.end > s.start && s.end <= total + 2 && s.start >= prevStart;
-        if (ok) prevStart = s.start;
-        return ok;
-      }),
-    }))
-    .filter((c) => c.good.length);
-  const pending = coverageGaps(chapters.flatMap((c) => c.good), total);
-
-  const nodes: TwinNode[] = [];
-  let sections = 0;
-  let segments = 0;
-  const add = (n: Omit<TwinNode, "id" | "order">) =>
-    nodes.push({ ...n, id: `n${String(nodes.length + 1).padStart(2, "0")}`, order: nodes.length });
-  const note = (g: { start: number; end: number }) =>
-    add({ kind: "segment", level: 3, heading: "Not outlined", text: gapText(g), start: Math.round(g.start), end: Math.round(g.end) });
-
-  for (const { ch, good } of chapters) {
-    add({ kind: "section", level: 2, heading: ch.title, text: ch.summary });
-    sections++;
-    for (const s of good) {
-      while (pending.length && pending[0].end <= s.start) note(pending.shift()!);
-      const shown = shownText(s);
-      add({ kind: "segment", level: 3, heading: s.heading, text: `On screen: ${shown} Said: ${s.said}`, start: Math.round(s.start), end: Math.round(s.end), shown });
-      segments++;
-    }
-  }
-  if (!sections) throw new Error("Gemini returned no usable segments for this video.");
-  pending.forEach(note);
-
-  const twin: Twin = {
-    id: `v-${hash.slice(0, 10)}`,
-    source: { url, kind: "video", title: title ?? raw.title, via: "gemini", ms: Date.now() - t0 },
-    nodes,
-    counts: { sections, figures: 0, segments },
-  };
-  await mkdir(".cache/video", { recursive: true });
-  await writeFile(`.cache/video/${hash}.json`, JSON.stringify(twin));
-  return twin;
+/** Opt-in route: YouTube's unofficial player API. Throws a plain Error (not VideoError) when the Gemini route should take over. */
+async function fromCaptions(id: string, url: string, khanTitle: string | null): Promise<VideoTwin> {
+  const t0 = Date.now();
+  const canonical = youtubeCanonical(id);
+  if ((await status(id)).segments.length) throw new Error("already read"); // a stored job, whichever route made it: served as is
+  const p = await player(id);
+  if (p.status === "ERROR") throw new VideoError(E_OPEN); // YouTube says the video does not exist
+  if (!p.ok) throw new Error(`YouTube refused the captions (${p.status})`);
+  const track = pickTrack(p.tracks);
+  if (!track) throw new Error("no caption tracks");
+  const cues = await fetchCues(track);
+  if (!cues.length) throw new Error("empty captions");
+  const total = Math.max(p.seconds, Math.ceil(cues[cues.length - 1].end));
+  const seed: TwinNode[] = segmentCues(cues, total).map((s, i) => ({
+    id: `n${String(i + 1).padStart(2, "0")}`,
+    kind: "segment",
+    order: i,
+    level: 3,
+    heading: clock(s.start),
+    text: s.text,
+    start: s.start,
+    end: s.end,
+  }));
+  await job(id, canonical, seed);
+  return twinOf(id, url, khanTitle || p.title || id, t0, track.kind === "asr" ? "auto" : "human", "direct");
 }

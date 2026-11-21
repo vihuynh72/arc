@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { HELP, LANDING_LINE, normalise, resolveLocal, type Ctx } from "../../lib/intent";
+import { help, LANDING_LINE, normalise, resolveLocal, searchAsked, type Ctx } from "../../lib/intent";
 
 const base: Ctx = { mode: "article", onKind: "section", index: 2, total: 45, canGoBack: false, label: "Results", title: "Knee sensors", now: 100_000 };
 const art = (o: Partial<Ctx> = {}): Ctx => ({ ...base, ...o });
@@ -26,7 +26,7 @@ export default function check() {
   assert.equal(normalise("okay"), "okay"); // alone it stays: it means yes
 
   // next and back, with counts and repeats
-  for (const w of ["next", "Next.", "forward", "continue", "keep going", "skip", "nex", "necks", "go next", "next please", "um next"]) assert.equal(name(w, art()), "next", w);
+  for (const w of ["next", "Next.", "forward", "skip", "nex", "necks", "go next", "next please", "um next"]) assert.equal(name(w, art()), "next", w);
   for (const w of ["back", "previous", "before", "bak", "Previous one"]) assert.equal(name(w, art()), "prev", w);
   assert.deepEqual(r("next next", art()), { name: "next", steps: 2 });
   assert.deepEqual(r("next next next", art()), { name: "next", steps: 3 });
@@ -38,11 +38,15 @@ export default function check() {
   assert.deepEqual(r("next 40", art()), { name: "next", steps: 10 }); // capped
   assert.deepEqual(r("back back", res), { name: "prev", steps: 2 });
 
+  assert.equal(name("read that again", art()), "read"); // measured: said often, was not in the grammar (a 0.8 s Decision call)
+  assert.equal(name("Stab", art()), "stop"); // the whole utterance only
+  assert.equal(r("stab wound", art()), null);
   // again, more, stop
   for (const w of ["again", "repeat", "say that again", "what", "What?", "replay", "one more time", "Say that again."]) assert.equal(name(w, art()), "read", w);
-  for (const w of ["more", "go on", "read it", "read this", "read more"]) assert.equal(name(w, art()), "continue", w);
+  for (const w of ["more", "go on", "read it", "read this", "read more", "continue", "keep going", "carry on", "begin", "read"]) assert.equal(name(w, art()), "continue", w);
   assert.equal(name("more", vid), "continue");
-  assert.equal(name("more", res), "read"); // the snippet
+  assert.equal(name("more", res), "moreResults"); // the next three results, read aloud
+  assert.equal(name("read it", res), "read"); // the snippet
   assert.equal(name("more", tour), "read");
   for (const w of ["stop", "quiet", "pause", "shh", "be quiet"]) assert.equal(name(w, art()), "stop", w);
   assert.equal(name("stop", tour), "stop");
@@ -54,7 +58,7 @@ export default function check() {
   assert.deepEqual(r("this one", res), { name: "open", args: { at: 2 } });
   assert.deepEqual(r("open", { ...res, index: -1 }), { name: "open", args: { at: 0 } });
   assert.equal(name("open", fig), "tour"); // on a figure, open means its tour
-  assert.equal(r("open it", art()), null); // on a section: Snap decides
+  assert.equal(r("open it", art()), null); // on a section: Decision decides
   assert.match(r("open", tour)?.say ?? "", /in the tour/);
 
   // tour, explore, this
@@ -98,7 +102,14 @@ export default function check() {
   assert.equal(name("faster", art()), "faster");
   assert.equal(name("slow down", art()), "slower");
   assert.deepEqual(r("normal speed", art()), { name: "slower", args: { normal: true } });
-  assert.match(r("faster", tour)?.say ?? "", /while reading/);
+  assert.equal(name("faster", tour), "faster"); // the tour's own speed (components/FigureTour.tsx)
+  // The self-running tour: pause and go on by voice; the natural ways of leaving it; a skip is the next stop.
+  for (const w of ["hold on", "hold on, wait", "stop", "wait a moment"]) assert.equal(name(w, tour), "stop", w);
+  for (const w of ["go on", "keep going", "carry on"]) assert.equal(name(w, tour), "continue", w);
+  for (const w of ["leave the picture and go back to the reading", "take me back to the page", "I'm done with the picture", "exit", "get me out of here", "that's enough"]) assert.equal(name(w, tour), "leave", w);
+  assert.equal(name("skip ahead a bit", tour), "next");
+  assert.equal(name("next", tour), "next");
+  assert.ok(searchAsked("search for photosynthesis") && searchAsked("find photosynthesis") && !searchAsked("photosynthesis for bio 101") && !searchAsked("what is in the top left?"));
 
   // where am i, help
   assert.equal(r("where am i", art())?.say, "Results, section 3 of 45, in Knee sensors.");
@@ -106,17 +117,31 @@ export default function check() {
   assert.equal(r("where", tour)?.say, "Figure 1 tour, stop 2 of 6: right thigh.");
   assert.equal(r("where am i", res)?.say, "Search results, 3 of 12.");
   assert.match(r("where am i", land)?.say ?? "", /Nothing is open/);
-  assert.equal(r("what can i do", art())?.say, HELP.article);
-  assert.equal(r("help", res)?.say, HELP.results);
-  assert.equal(r("options", tour)?.say, HELP.tour);
-  assert.equal(r("help", land)?.say, HELP.landing);
+  assert.equal(r("what can i do", art())?.say, help(art()));
+  assert.equal(r("help", res)?.say, help(res));
+  assert.equal(r("options", tour)?.say, help(tour));
+  assert.equal(r("help", land)?.say, help(land));
 
   // start, end, go back
   for (const w of ["start", "top", "beginning", "start over", "go to the top"]) assert.deepEqual(r(w, art()), { name: "goto", args: { at: 0 } }, w);
   for (const w of ["end", "bottom", "go to the end"]) assert.deepEqual(r(w, art()), { name: "goto", args: { at: 44 } }, w);
   assert.equal(name("go back", art({ canGoBack: true })), "return");
   assert.equal(name("return", art({ canGoBack: true })), "return");
-  assert.match(r("go back", art())?.say ?? "", /nowhere/);
+  assert.equal(name("go back", art()), "return", "with nothing to return from, Reader makes it the previous stop");
+  for (const w of ["back up", "previous paragraph", "go up", "up"]) assert.equal(name(w, art()), "prev", w);
+  for (const w of ["next paragraph", "move down", "go down"]) assert.equal(name(w, art()), "next", w);
+  for (const w of ["skip this section", "skip section", "next section"]) assert.equal(name(w, art()), "nextHeading", w);
+
+  // PDFs: page jumps only where the document has pages; opening a file anywhere; the original page only on an article
+  const pdf = art({ paged: true });
+  assert.deepEqual(r("go to page 40", pdf), { name: "page", args: { n: 40 } });
+  assert.deepEqual(r("page nine", pdf), { name: "page", args: { n: 9 } });
+  assert.deepEqual(r("next page", pdf), { name: "page", args: { by: 1 } });
+  assert.deepEqual(r("go to the previous page", pdf), { name: "page", args: { by: -1 } });
+  assert.equal(r("page 4", art()), null, "not a PDF: Decision decides");
+  for (const w of ["open a file", "upload a PDF"]) for (const c of [land, pdf, res]) assert.deepEqual(r(w, c), { name: "upload" }, w);
+  assert.equal(name("show the original page", art()), "original");
+  assert.equal(r("show the original page", vid), null);
 
   // figure and heading moves
   assert.equal(name("next figure", art()), "nextFigure");
@@ -147,27 +172,37 @@ export default function check() {
   assert.deepEqual(r("tor figure 2", fig), { name: "tour", args: { figure: 2 } });
   assert.deepEqual(r("the figure one", fig), { name: "tour", args: { figure: 1 } });
   assert.deepEqual(r("tour figure three", art()), { name: "tour", args: { figure: 3 } });
-  assert.equal(r("to figure one", art()), null); // off a figure "to figure one" may be a go-to: Snap decides
+  assert.equal(r("to figure one", art()), null); // off a figure "to figure one" may be a go-to: Decision decides
   assert.equal(r("the text of the methods", art()), null);
   // an offer is accepted by the words it asked for
   for (const w of ["tour", "explore", "start", "go", "do it", "store"]) assert.deepEqual(r(w, art({ pendingOffer: offer })), { name: "tour", args: { id: "n9" }, say: undefined }, w);
 
   // landing: navigation words explain, nothing moves
   for (const w of ["next", "back", "again", "open it", "tour", "next next", "first", "go back"]) assert.deepEqual(r(w, land), { name: "none", say: LANDING_LINE }, w);
-  // landing: the prepared examples the page links to open at once; elsewhere the same words go on to Snap
+  // the most basic commands said alone in Spanish, French, German and Vietnamese answer locally, exactly as their English forms do
+  for (const [said, english] of [["siguiente", "next"], ["Siguiente.", "next"], ["para", "stop"], ["¿Dónde estoy?", "where am i"], ["ayuda", "help"], ["repite", "again"], ["más despacio", "slower"], ["atrás", "back"], ["suivant", "next"], ["Où suis-je ?", "where am i"], ["weiter", "go on"], ["zurück", "back"], ["hilfe", "help"], ["tiếp theo", "next"], ["dừng lại", "stop"], ["Tôi đang ở đâu?", "where am i"]] as const)
+    for (const ctx of [art(), tour, res]) assert.deepEqual(r(said, ctx), r(english, ctx), `${said} in ${ctx.mode}`);
+  assert.deepEqual(r("siguiente", art()), { name: "next" });
+  assert.equal(name("para", art()), "stop");
+  assert.equal(r("para qué sirve la clorofila", art()), null, "a sentence that starts with a command word is not that command: the model decides");
+  // in a tour, "play it" starts it going through the parts by itself again
+  for (const w of ["play", "play it", "Play it, please."]) assert.deepEqual(r(w, tour), { name: "play" }, w);
+  // landing: a stop word has nothing to pause, and is still answered (a silent start page reads as "not heard"); on a page it stops
+  for (const w of ["stop", "hold on", "wait", "that's enough", "one moment"]) assert.deepEqual(r(w, land), { name: "stop", say: "Okay." }, w);
+  assert.deepEqual(r("hold on", art()), { name: "stop" });
+  // landing: the prepared examples the page links to open at once; elsewhere the same words go on to Decision
   for (const w of ["Open the paper.", "open a research paper", "example", "show me an example", "please open the paper"]) assert.match(String(r(w, land)?.args?.url), /mdpi\.com\/1424-8220\/24\/6\/1935$/, w);
-  assert.match(String(r("open the video", land)?.args?.url), /youtube\.com\/watch\?v=EPvd-3712U8$/);
+  assert.match(String(r("open the video", land)?.args?.url), /youtube\.com\/watch\?v=4JqH55rLGKY$/);
   assert.match(String(r("open the textbook", land)?.args?.url), /openstax\.org\/.+endocrine-pancreas$/);
   assert.equal(r("open the paper", land)?.name, "open");
   assert.equal(r("open the paper", base), null);
 
-  // whole utterance only: longer sentences go on to Snap and Gemini
+  // whole utterance only: longer sentences go on to Decision and Gemini
   for (const w of [
     "what comes next in the experiment",
     "what is this",
     "go back to the methods",
     "take me to the results",
-    "find a paper about knee rehabilitation",
     "what does that mean",
     "next figure please explain what it shows",
     "stop the experiment results",
@@ -176,6 +211,7 @@ export default function check() {
     "explain this",
   ])
     assert.equal(r(w, art()), null, w);
+  assert.deepEqual(r("find a paper about knee rehabilitation", art()), { name: "search", args: { query: "knee rehabilitation" }, say: "Searching for knee rehabilitation." }); // the web, not this page
   assert.equal(r("", art()), null);
   assert.equal(r("one", res), null);
 }

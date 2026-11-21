@@ -2,17 +2,22 @@
   "name": "arc",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "dev": "tsx server.ts",
     "build": "next build",
     "start": "export NODE_ENV=production; if command -v taskset >/dev/null; then echo using taskset; exec taskset -c 0,1 tsx server.ts; else echo no taskset; exec tsx server.ts; fi",
     "selfcheck": "tsx scripts/selfcheck.ts",
+    "e2e": "tsx scripts/e2e.ts",
     "lint": "eslint"
   },
   "dependencies": {
+    "@echogarden/espeak-ng-emscripten": "0.3.5",
     "cheerio": "^1.2.0",
     "kokoro-js": "^1.2.1",
     "next": "16.4.6",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^6.5.438",
     "playwright-core": "^1.65.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",

@@ -1,29 +1,17 @@
 // What Arc heard: the rules that turn several transcripts of one spoken request into the text to act on.
-// Mishearing is the worst failure for a blind student, so a guess never acts on its own (see actNow).
+// Mishearing is the worst failure for a blind student, so a guess never acts on its own (see mayDispatch).
 
 /** Lowercase words only, for comparing transcripts from different recognisers. */
 export const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 
-// Single words that mean one thing on every page; anything longer needs two sources or the final transcript.
-const SURE_WORDS = new Set(["next", "back", "again", "stop"]);
-
-export interface Early {
-  gemini?: { text: string; at: number }; // Gemini transcription session, interim
-  chrome?: { text: string; at: number }; // the browser's speech recognition, interim
-}
-
 /**
- * At key release: the text to act on at once, or undefined to wait for the relay's final "heard".
- * Acts only when Gemini and Chrome agree, or one source has said exactly one unambiguous command word for stableMs.
+ * The one rule that keeps a wrong move away from a blind student: nothing runs while the key is held (the voice already
+ * stopped when the key went down, so a barge-in "stop" needs no transcript), and nothing runs from an early (partial)
+ * transcript, which trails speech and is often a fragment ("Go" of "go back", "Move" of "move down", "Next" of "next
+ * section"). Early words only warm the decision; a command runs after release, on the final transcript.
  */
-export function actNow(e: Early, now: number, stableMs = 350): { text: string; source: string } | undefined {
-  const g = e.gemini && norm(e.gemini.text);
-  const c = e.chrome && norm(e.chrome.text);
-  if (g && c && g === c) return { text: g, source: "gemini+chrome" };
-  for (const [source, s] of [["gemini", e.gemini], ["chrome", e.chrome]] as const) {
-    if (s && SURE_WORDS.has(norm(s.text)) && now - s.at >= stableMs) return { text: norm(s.text), source };
-  }
-  return undefined;
+export function mayDispatch(from: "partial" | "final", released: boolean): boolean {
+  return from === "final" && released;
 }
 
 /**
@@ -43,5 +31,7 @@ export function bestReading(sources: { gemini?: string; chrome?: string; context
 }
 
 export const HEARD_NOTHING = "I did not hear anything. Hold Space while you speak.";
-export const heardUnsure = (text: string) => `I heard: ${text}. I am not sure what to do.`;
+export const NOT_CAUGHT = "Sorry, I didn't catch that. Could you say it again?";
+export const ONE_MOMENT = "One moment.";
+export const LOST_LINE = "I lost the connection. Hold Space and say it again.";
 export const TOO_QUIET = "I can barely hear you. Move closer to the microphone.";

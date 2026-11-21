@@ -1,18 +1,20 @@
 // Figure tours: hand-fixed fixtures for prepared figures, Gemini vision for any other image.
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { getImage, mkdir, readFile, writeFile } from "./vault"; // private documents' files stay in memory (lib/server/vault.ts)
 import { brief, chartTour, cleanBox, cleanChart, hasValues, type CleanChart, type RawChart } from "../chart";
 import { GEMINI_CHART_MODELS, GEMINI_VISION_MODEL } from "../models";
 import type { Tour, TourStop } from "../types";
 import { generateJson, generateJsonChain, type Part } from "./gemini";
+import { fetchImage as guardedImage } from "./images";
+import { framePath } from "./videoFrames";
+import { allowExtras } from "./budget";
+import { cropAround, FIT, fitTour, fromCrop, type Fitted } from "./ringFit";
 
 const PREPARED = [
   { match: "sensors-24-01935-g001", file: "fixtures/lower/tour-final.json", image: "/fixtures/lower/figure-1280.jpg" },
   { match: "aerospace-09-00604-g001", file: "fixtures/mars/tour-best.json", image: "/fixtures/mars/figure-1280.jpg" },
 ];
 
-const CHROME_UA =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
 const PROMPT = `You are describing one figure from a study text for a blind student who will be guided through it stop by stop.
 Return a teaching tour of 5 to 10 stops (always at least 5: if the figure is simple, split it into its parts, connections, pins, labels or legend) in the order that best teaches the figure (not necessarily top to bottom).
@@ -152,7 +154,7 @@ async function printedNumbers(image: Part): Promise<{ yes: boolean; quotes: stri
     const r = await generateJson<{ answer?: string; quotes?: string[] }>(
       [{ text: "Does this chart print numbers on an axis, on the bars, or on the slices? Answer yes or no and quote two of them." }, image],
       CHECK_SCHEMA,
-      { model: GEMINI_VISION_MODEL, timeoutMs: 20_000 },
+      { model: GEMINI_VISION_MODEL, timeoutMs: 20_000, feature: "chart" },
     );
     return { yes: r.answer !== "no", quotes: (r.quotes ?? []).filter((q) => typeof q === "string").slice(0, 2) };
   } catch {
@@ -166,7 +168,7 @@ export async function readChart(image: Part, source: string, models = GEMINI_CHA
   try {
     const t = Date.now();
     const prompt = withContext(CHART_PROMPT, context);
-    const first = await generateJsonChain<RawChart>([{ text: prompt }, image], CHART_SCHEMA, models, 60_000);
+    const first = await generateJsonChain<RawChart>([{ text: prompt }, image], CHART_SCHEMA, models, 60_000, "chart");
     const { model, tried } = first;
     let raw = first.data;
     console.log(`[tour] chart read by ${model} in ${Date.now() - t} ms${tried.length > 1 ? ` (tried ${tried.join(", ")})` : ""}`);
@@ -179,7 +181,7 @@ export async function readChart(image: Part, source: string, models = GEMINI_CHA
         const said = check.quotes.length ? ` such as ${check.quotes.map((q) => `"${q}"`).join(" and ")}` : "";
         const retry = `${prompt}\n\nAn earlier attempt said the values could not be read, but the chart shows printed numbers${said}. Read them.`;
         try {
-          const r2 = await generateJsonChain<RawChart>([{ text: retry }, image], CHART_SCHEMA, next, 60_000);
+          const r2 = await generateJsonChain<RawChart>([{ text: retry }, image], CHART_SCHEMA, next, 60_000, "chart");
           const c2 = cleanChart(r2.data);
           console.log(`[tour] chart re-read by ${r2.model}: ${hasValues(c2) ? "values" : "still none"}`);
           if (c2 && (hasValues(c2) || !chart)) [raw, chart] = [r2.data, c2];
@@ -224,13 +226,18 @@ export async function prepared(imageUrl: string): Promise<Tour | null> {
   return p ? { ...(JSON.parse(await readFile(p.file, "utf8")) as Tour), image: p.image } : null;
 }
 
-/** The best tour already on disk, without calling a model: prepared, then full, then quick. */
-export async function cachedTour(imageUrl: string): Promise<Tour | null> {
+/** The best tour already on disk, without calling a model: prepared, then full, then quick. `fit`: a full tour saved before
+ * rings were fitted is fitted now (code only, once, saved again); only where a tour is served, not when listing a page. */
+export async function cachedTour(imageUrl: string, fit = false): Promise<Tour | null> {
   const quick = async () => {
     const q = await readJson(quickFile(imageUrl));
     return q && quietChart(q); // older saved quick tours were written before numbers were stripped
   };
-  return (await prepared(imageUrl)) ?? (await readJson(fullFile(imageUrl))) ?? (await quick());
+  const full = async () => {
+    const f = await readJson(fullFile(imageUrl));
+    return f && fit ? fitSaved(imageUrl, f) : f;
+  };
+  return (await prepared(imageUrl)) ?? (await full()) ?? (await quick());
 }
 
 // A count or a value said by the light model cannot be checked by a blind student, and was wrong ("nine cycles" for ten).
@@ -283,22 +290,80 @@ export function chartSketch(title: string, info: ChartInfo, source: string): Tou
   return { title: t, overview: `${overview} ${STILL_READING}`, source, stops: stops.map((s, k) => ({ n: k + 1, ...s, says: brief(s.says) })), stage: "quick" };
 }
 
+// Pictures Arc made itself (a still from a video, a figure cut from a PDF) are stored under .cache/ and are read straight from
+// disk: the address guard rightly refuses to let the server fetch from its own host.
+async function ownImage(imageUrl: string): Promise<Part | null | undefined> {
+  let u: URL;
+  try {
+    u = new URL(imageUrl);
+  } catch {
+    return undefined;
+  }
+  const q = u.searchParams;
+  const part = async (file: string, mimeType: string): Promise<Part | null> => {
+    const data = await readFile(file).catch(() => null);
+    return data ? { inlineData: { mimeType, data: data.toString("base64") } } : null;
+  };
+  if (u.pathname === "/api/video/frame") {
+    const [id, node] = [q.get("id") ?? "", q.get("node") ?? ""];
+    return /^[\w-]{11}$/.test(id) && /^n\d{2,4}$/.test(node) ? part(framePath(id, node), "image/jpeg") : null;
+  }
+  if (u.pathname === "/api/pdf/figure") {
+    const [id, node, box] = [q.get("id") ?? "", q.get("node") ?? "", q.get("box") ?? ""];
+    const ok = /^[a-f0-9]{24}$/.test(id) && /^p\d{3,4}-[nf]\d{2}$/.test(node) && /^\d{1,4}(,\d{1,4}){3}$/.test(box);
+    return ok ? part(`.cache/pdf/${id}/figures/${node}-${box.replaceAll(",", "_")}.png`, "image/png") : null; // same name app/api/pdf/figure writes
+  }
+  if (u.pathname === "/api/ingest" && q.get("img")) {
+    const pic = getImage(q.get("img") ?? ""); // a picture from a private page, held in memory with it
+    return pic ? { inlineData: { mimeType: pic.type, data: pic.data.toString("base64") } } : null;
+  }
+  return undefined; // not one of ours
+}
+
 async function fetchImage(imageUrl: string): Promise<Part | null> {
   if (!/^https?:\/\//i.test(imageUrl)) return null;
-  const res = await fetch(imageUrl, { headers: { "user-agent": CHROME_UA }, signal: AbortSignal.timeout(20_000) });
-  if (!res.ok) return null;
-  const mime = (res.headers.get("content-type") ?? "").split(";")[0].trim();
-  if (!mime.startsWith("image/")) return null;
-  return { inlineData: { mimeType: mime, data: Buffer.from(await res.arrayBuffer()).toString("base64") } };
+  const own = await ownImage(imageUrl);
+  if (own !== undefined) return own;
+  // Arc's own image route (a figure the browser could not load directly) is unwrapped; every fetch goes through the address guard.
+  const inner = /\/api\/image\?u=([^&]+)/.exec(imageUrl)?.[1];
+  const img = await guardedImage(inner ? decodeURIComponent(inner) : imageUrl).catch(() => null);
+  if (!img) return null;
+  if (img.type === "image/svg+xml") return rasterise(img.body);
+  return { inlineData: { mimeType: img.type, data: Buffer.from(img.body).toString("base64") } };
+}
+
+/** A vector figure drawn as a PNG the vision model can read (arXiv's HTML papers draw most figures as SVG). The box scale is
+ * relative, so the ring still lands on the vector picture the page shows. Null when it cannot be drawn.
+ * shortcut: sharp comes with Next (an optional dependency), not declared in package.json; declare it if a host lacks it. */
+export async function rasterise(svg: Uint8Array): Promise<Part | null> {
+  if (svg.byteLength > 3_000_000) return null;
+  try {
+    const sharp = (await import("sharp")).default;
+    const png = await sharp(svg, { density: 144, limitInputPixels: 40_000_000 })
+      .flatten({ background: "#fff" })
+      .resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true })
+      .png()
+      .toBuffer();
+    return { inlineData: { mimeType: "image/png", data: png.toString("base64") } };
+  } catch {
+    return null;
+  }
 }
 
 /** Stage one: the light model's tour. A chart's is saved as stage "quick" (a full one follows); any other kind is final. */
 export async function quickTour(imageUrl: string, context?: string): Promise<Tour | null> {
-  const have = await cachedTour(imageUrl);
+  const have = await cachedTour(imageUrl, true);
   if (have) return have;
   const image = await fetchImage(imageUrl);
   if (!image) return null;
-  const raw = await generateJson<Raw>([{ text: withContext(PROMPT, context) }, image], SCHEMA, { timeoutMs: 25_000 });
+  const tour = await modelTour(image, imageUrl, context);
+  if (tour) await save(tour.stage === "quick" ? quickFile(imageUrl) : fullFile(imageUrl), tour);
+  return tour;
+}
+
+/** The light model's tour of one picture (not saved). */
+export async function modelTour(image: Part, imageUrl: string, context?: string): Promise<Tour | null> {
+  const raw = await generateJson<Raw>([{ text: withContext(PROMPT, context) }, image], SCHEMA, { timeoutMs: 25_000, feature: "tour" });
   const stops: TourStop[] = [];
   for (const s of raw.stops ?? []) {
     const box = cleanBox(s.box_2d);
@@ -315,9 +380,62 @@ export async function quickTour(imageUrl: string, context?: string): Promise<Tou
   const made: Tour = { title: raw.title ?? "Figure", overview: brief(raw.overview ?? ""), source: imageUrl, stops, ...(isChart ? { stage: "quick" as const } : {}) };
   // A chart's quick tour is built in code from names (never just "A chart."); the light model's own sentences are the fallback.
   const sketch = isChart && raw.chart_info ? chartSketch(made.title, raw.chart_info, imageUrl) : null;
-  const tour = sketch ?? quietChart(made);
-  await save(isChart ? quickFile(imageUrl) : fullFile(imageUrl), tour);
-  return tour;
+  if (isChart) return sketch ?? quietChart(made);
+  // Rings: the first boxes are loose. A diagram's stops get the crop pass (not a photo's: its boxes are already good), then
+  // every stop is fitted to the picture's own marks in code (lib/server/ringFit.ts). Measured by scripts/ring-eval.ts.
+  const bytes = partBytes(image);
+  const better = bytes && raw.kind !== "photo" && allowExtras() ? await refineStops(made, bytes) : made;
+  return fitTour(better, bytes);
+}
+
+/** The bytes of an inline picture (a fetched figure, an SVG drawn to PNG, a private page's picture held in memory). */
+const partBytes = (image: Part): Buffer | null => {
+  const data = (image.inlineData as { data?: unknown } | undefined)?.data;
+  return typeof data === "string" ? Buffer.from(data, "base64") : null;
+};
+
+/** A tour saved before rings were fitted: fitted now in code (no model call) and saved again, once. Prepared fixtures, chart
+ * tours and photos keep their boxes; any failure returns the tour as it was. */
+async function fitSaved(imageUrl: string, tour: Fitted): Promise<Tour> {
+  if ((tour.fitted ?? 0) >= FIT || tour.chart || tour.stage === "quick") return tour;
+  try {
+    const image = await fetchImage(imageUrl);
+    const bytes = image && partBytes(image);
+    if (!bytes) return tour;
+    const fitted = await fitTour(tour, bytes);
+    if (fitted !== tour) await save(fullFile(imageUrl), fitted);
+    return fitted;
+  } catch {
+    return tour;
+  }
+}
+
+const REFINE_SCHEMA = { type: "OBJECT", properties: { found: { type: "BOOLEAN" }, box_2d: { type: "ARRAY", items: { type: "NUMBER" } } }, required: ["found"] };
+const REFINE_MS = 9000; // the whole pass: a student may be waiting for this tour
+/** The crop pass: one light call per stop on a zoomed crop around its first box, asking for the named part's tight box there;
+ * a stop's box is replaced when the part is found. Runs once, when a tour is first built, and only on a normal-budget day
+ * (each call also passes the budget guard). Measured on 10 figures: median IoU 0.58 -> 0.76 with the fit, about $0.0004 a stop. */
+export async function refineStops(tour: Tour, image: Uint8Array): Promise<Tour> {
+  const late = new Promise<null>((r) => setTimeout(() => r(null), REFINE_MS).unref?.());
+  const all = Promise.all(
+    tour.stops.map(async (st) => {
+      const c = await cropAround(image, st.box_2d);
+      if (!c) return st;
+      try {
+        const r = await generateJson<{ found?: boolean; box_2d?: unknown }>(
+          [{ text: `This is a zoomed part of a figure. Find the part named "${st.label}" (${st.says}). found: whether it is in this picture. box_2d: [ymin, xmin, ymax, xmax] on a 0 to 1000 scale of this picture, tightly around the drawn part itself with its outline, not only its text.` }, { inlineData: { mimeType: "image/png", data: c.png.toString("base64") } }],
+          REFINE_SCHEMA,
+          { timeoutMs: REFINE_MS, feature: "tour" },
+        );
+        const b = r.found ? cleanBox(r.box_2d) : null;
+        return b ? { ...st, box_2d: fromCrop(c.window, b) } : st;
+      } catch {
+        return st; // busy, refused by the budget, or unreadable: the first box stays
+      }
+    }),
+  );
+  const stops = await Promise.race([all, late]);
+  return stops ? { ...tour, stops } : tour;
 }
 
 /** Stage two, charts only: the data-read, code-built tour. Returns the final tour, or null when the chart read failed. */

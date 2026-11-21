@@ -1,5 +1,6 @@
 // Called by app/api/load/route.ts and scripts/checks/parse.ts. Deterministic MDPI markdown -> Twin; no model.
 import { createHash } from "node:crypto";
+import { withLang } from "@/lib/parse/lang";
 import type { Twin, TwinNode } from "@/lib/types";
 
 const clean = (s: string) =>
@@ -69,10 +70,10 @@ export function parseMarkdown(md: string, url: string): Twin {
   }
 
   const count = (k: TwinNode["kind"]) => nodes.filter((n) => n.kind === k).length;
-  return {
+  return withLang({
     id: "twin-" + createHash("sha1").update(url).digest("hex").slice(0, 8),
     source: { url, kind: "page", title, via: "cache", credit },
     nodes,
     counts: { sections: count("section"), figures: count("figure"), segments: count("segment") },
-  };
+  });
 }

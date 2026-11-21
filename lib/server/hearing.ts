@@ -1,11 +1,15 @@
 // Context-aware transcription of one finished spoken request, and the local record of every ask.
 // Generic live transcription has no idea what a student on this page is likely to say; a stronger model given the
-// whole clip plus the page's names does. Every ask is kept on this laptop (.cache/asks, gitignored) so real failures
-// can be replayed: the audio never goes anywhere else than the Gemini calls that already hear it.
+// whole clip plus the page's names does. In development every ask is kept on this laptop (.cache/asks, gitignored) so
+// real failures can be replayed: the audio never goes anywhere else than the Gemini calls that already hear it.
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { GEMINI_HEARING_MODEL } from "../models";
+import { BudgetError, DEPLETED_LINE, checkModel, noteGeminiFailure, recordGemini } from "./budget";
 
 export const ASK_DIR = ".cache/asks";
+
+/** The recordings are a replay aid on the owner's laptop. A hosted copy keeps no visitor's voice or words; ARC_KEEP_ASKS=on|off overrides. */
+export const keepAsks = () => process.env.ARC_KEEP_ASKS === "on" || (process.env.NODE_ENV !== "production" && process.env.ARC_KEEP_ASKS !== "off");
 
 export interface Reading {
   text: string;
@@ -65,6 +69,7 @@ export function pageNames(context: string): string[] {
 export async function hearWithContext(pcm: Buffer, context: string, timeoutMs = 6000, model = GEMINI_HEARING_MODEL): Promise<Reading> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY is not set");
+  checkModel("hearing");
   const names = pageNames(context);
   const prompt =
     "A blind student is speaking a short command or question to a reading app. Transcribe exactly what they said. " +
@@ -91,8 +96,12 @@ export async function hearWithContext(pcm: Buffer, context: string, timeoutMs = 
       },
     }),
   });
-  if (!res.ok) throw new Error(`hearing HTTP ${res.status}`);
+  if (!res.ok) {
+    if (noteGeminiFailure(res.status, await res.text().catch(() => ""))) throw new BudgetError(DEPLETED_LINE, "depleted");
+    throw new Error(`hearing HTTP ${res.status}`);
+  }
   const j = await res.json();
+  recordGemini("hearing", model, j.usageMetadata);
   const raw = (j.candidates?.[0]?.content?.parts ?? []).map((p: { text?: string }) => p.text ?? "").join("");
   const r = JSON.parse(raw) as { text?: string; alternatives?: string[]; confident?: boolean };
   const text = String(r.text ?? "").trim();
@@ -104,6 +113,7 @@ export async function hearWithContext(pcm: Buffer, context: string, timeoutMs = 
 /** Writes <time>-<id>.wav and one log.jsonl line, and prints one short console line (no audio, no keys). */
 export async function logAsk(rec: Record<string, unknown> & { id: string; t0: number; pcm: Buffer[] }) {
   const pcm = Buffer.concat(rec.pcm);
+  if (!keepAsks()) return console.info(`[ask] ${rec.id.replace(/[^\w-]/g, "")} ${Math.round(pcm.length / 32)} ms (not kept)`);
   const stamp = new Date(rec.t0).toISOString().replace(/[:.]/g, "-");
   const file = `${ASK_DIR}/${stamp}-${rec.id.replace(/[^\w-]/g, "")}.wav`;
   const { pcm: _pcm, t0, ...rest } = rec;

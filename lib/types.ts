@@ -34,18 +34,28 @@ export interface Tour {
 
 export type NodeKind = "section" | "figure" | "segment";
 
+/** One stop for the reading cursor inside a node: the cursor moves heading -> block -> block, never a whole section at once. */
+export interface Block {
+  id: string; // "<node id>.b01" in order, assigned by code
+  kind: "paragraph" | "item" | "equation" | "table" | "quote";
+  text: string; // what is shown
+  say?: string; // what is spoken when it differs from the text (math, tables)
+}
+
 export interface TwinNode {
   id: string; // "n01" in page order, assigned by code
   kind: NodeKind;
   order: number;
   level: number | null; // heading level for sections
   heading: string;
-  text: string; // what the reader voice speaks for this node
+  text: string; // the node's whole text; blocks are the same text cut into cursor stops
+  blocks?: Block[]; // when absent, lib/blocks.ts derives them from `text` (blank-line paragraphs)
   image?: { url: string; alt: string | null };
   tour?: Tour; // figure nodes that can be toured
   start?: number; // video segments: seconds
   end?: number;
   shown?: string; // video segments: what is on screen
+  page?: number; // PDF nodes: 1-based page the node came from
 }
 
 export interface Twin {
@@ -54,10 +64,29 @@ export interface Twin {
     url: string;
     kind: "page" | "pdf" | "video";
     title: string;
-    via: "cache" | "browser-api" | "unlocker" | "gemini" | "direct" | "browser";
+    via: "cache" | "browser-api" | "unlocker" | "gemini" | "direct" | "browser" | "open-copy" | "open-index"; // open-copy: a legal open copy of the paper; open-index: details and abstract from an open scholarly index
     credit?: string; // license and attribution line, shown on the twin
+    private?: boolean; // sent from the student's own signed-in browser by the Arc helper: never cached to disk, never in a shareable link
+    assessment?: boolean; // looks like a quiz or exam being taken: Arc reads it aloud but does not answer its questions
+    lang?: string; // BCP 47 language of the text ("es", "ar", "ja"), from the page; absent means English
+    dir?: "ltr" | "rtl"; // text direction, from the page or the language
     ms?: number; // time the fetch took
   };
+  /** Videos only. Segments come from the video's own captions, in code; `shown` and headings arrive later from /api/video/shown. */
+  video?: {
+    id: string; // YouTube id
+    duration: number; // seconds
+    captions: "human" | "auto" | "none"; // "none": transcript made by Gemini instead
+    enriched: boolean; // true once every segment has its heading and its on-screen description
+  };
+  /** PDFs only. The twin starts with the first page(s); /api/pdf/page serves the rest as the student reaches them. */
+  pdf?: {
+    id: string; // server id of the stored file
+    pages: number; // total pages in the file
+    outline?: { title: string; page: number; level: number }[]; // the whole document's sections, by code (lib/server/pdf.ts pdfOutline); level 1 is the top
+  };
+  /** Places the student can go from here on the same site (course modules, next and previous page), in page order. */
+  links?: { label: string; url: string; rel?: "next" | "prev" | "up" }[];
   nodes: TwinNode[];
   counts: { sections: number; figures: number; segments: number }; // always computed in code
 }

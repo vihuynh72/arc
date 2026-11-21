@@ -1,8 +1,14 @@
 // Offline: prepared figures never touch the network or Gemini.
 import assert from "node:assert";
-import { chartSketch, getTour, quietChart, STILL_READING } from "../../lib/server/tour";
+import { chartSketch, getTour, quietChart, rasterise, STILL_READING } from "../../lib/server/tour";
 
 export default async function check() {
+  // A vector figure becomes a PNG for the vision model; something that is not a picture becomes nothing.
+  const png = await rasterise(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="#06c"/></svg>'));
+  const data = Buffer.from(String((png?.inlineData as { data?: string } | undefined)?.data ?? ""), "base64");
+  assert.equal(data.toString("latin1", 1, 4), "PNG");
+  assert.equal(await rasterise(Buffer.from("not a picture")), null);
+
   const lower = await getTour("https://mdpi-res.com/sensors/sensors-24-01935/article_deploy/html/images/sensors-24-01935-g001-550.jpg");
   assert.equal(lower?.stops.length, 6);
   assert.equal(lower?.image, "/fixtures/lower/figure-1280.jpg");

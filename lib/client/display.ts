@@ -1,5 +1,5 @@
 // Display profiles: how the page looks for a student with some vision. Each axis is one attribute on <html>
-// (data-theme, data-text, data-spacing, data-font, data-focus, data-motion); app/profiles.css styles them, so they combine.
+// (data-theme, data-text, data-spacing, data-font, data-focus, data-motion, data-pointer); app/profiles.css styles them, so they combine.
 // Used by components/DisplaySettings.tsx (the panel and the "display" voice command) and app/layout.tsx (paint before first paint).
 
 export const THEMES = { paper: "Paper", contrast: "High contrast light", "contrast-dark": "High contrast dark", "low-glare": "Low glare dark", cream: "Soft cream" } as const;
@@ -16,7 +16,10 @@ export interface Display {
   font?: "legible";
   focus?: "on";
   motion?: "reduce";
+  pointer?: "large" | "off"; // the drawn reading pointer (components/Pointer.tsx); missing: normal size
+  realPointer?: "on"; // also move the real mouse pointer (lib/client/pointer.ts), only where the server allows it; off by default
   voiceFirst?: true; // "I am blind": everything shown is also said, reading runs on, moves say where they land
+  hints?: "off"; // the one-time spoken tips ("Tip: H jumps to the next heading."); missing: on
 }
 
 export const PROFILES: Record<Profile, { label: string; set: Display }> = {
@@ -56,6 +59,9 @@ export const VOICE_FIRST_ON = "Okay. I will tell you everything out loud. Hold S
 /** Voice first is on (persisted with the display settings). */
 export const voiceFirst = () => typeof window !== "undefined" && load().voiceFirst === true;
 
+/** The one-time spoken tips are on (the default). */
+export const hintsOn = () => typeof window !== "undefined" && load().hints !== "off";
+
 const KEY = "arc-display";
 
 /**
@@ -72,6 +78,8 @@ export function paint(s: Display) {
   d.dataset.font = s.font || "default";
   d.dataset.focus = s.focus || "off";
   d.dataset.motion = s.motion || (m("(prefers-reduced-motion: reduce)") ? "reduce" : "auto");
+  d.dataset.pointer = s.pointer || "normal";
+  d.dataset.realPointer = s.realPointer || "off";
 }
 
 export const BOOT = `try{(${paint.toString()})(JSON.parse(localStorage.getItem(${JSON.stringify(KEY)})||"{}"))}catch(e){}`;

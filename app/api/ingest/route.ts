@@ -1,51 +1,63 @@
-// POST {url, title?, html} from the Arc browser extension (extension/background.js): the page the student already has open,
-// so nothing is fetched from the web. Only the parsed Twin is stored and served; the HTML itself is never kept or re-served.
-// GET ?id= returns that Twin; components/Twin.tsx calls it for /?doc=<id>.
-import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { parseHtml } from "@/lib/parse/html";
-import { warmPage } from "@/lib/server/tourQueue";
+// POST the page the student sent from their own browser (the Arc helper extension, or the bookmarklet through an Arc tab):
+// {url, title, html, images, links, frames, videos, youtube, lines} or {url, title, pdf: {name, data}}. Nothing is fetched: this
+// route receives content, it never fetches an address it is given. Kept in memory only (lib/server/ingest.ts, lib/server/vault.ts).
+// GET with header x-arc-doc: <32 hex> (or ?id=) -> the private twin (components/Twin.tsx, /#doc=<id>); GET ?img=<key> -> one of its pictures.
+// Nothing about the page (address, title, text) is logged.
+import { IngestError, ingest, LIMITS, validate } from "@/lib/server/ingest";
+import * as vault from "@/lib/server/vault";
 
 export const runtime = "nodejs";
 
-const MAX = 4 * 1024 * 1024;
-// The caller is an extension or bookmarklet on another site: cross-origin is allowed for this route only.
-const CORS = { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, POST, OPTIONS", "access-control-allow-headers": "content-type" };
-const reply = (body: unknown, status = 200) => Response.json(body, { status, headers: CORS });
-const file = (id: string) => `.cache/ingest/${id}.json`;
+// Cross-origin: only the extension's own background page (chrome-extension://...) may post here. The bookmarklet posts from an
+// Arc tab (same origin). Any other site gets no CORS headers, so a browser will not let it read the answer.
+const cors = (req: Request): Record<string, string> => {
+  const o = req.headers.get("origin") ?? "";
+  return /^chrome-extension:\/\/[a-p]{32}$/.test(o) ? { "access-control-allow-origin": o, "access-control-allow-methods": "GET, POST, OPTIONS", "access-control-allow-headers": "content-type, x-arc-doc", vary: "origin" } : {};
+};
+const reply = (req: Request, body: unknown, status = 200) => Response.json(body, { status, headers: { ...cors(req), "cache-control": "no-store" } });
+const TOO_BIG = "That page is larger than Arc can take: 40 megabytes with its pictures.";
 
-export function OPTIONS() {
-  return new Response(null, { status: 204, headers: CORS });
+export function OPTIONS(req: Request) {
+  return new Response(null, { status: 204, headers: cors(req) });
 }
 
 export async function POST(req: Request) {
-  if (Number(req.headers.get("content-length") || 0) > MAX) return reply({ error: "That page is larger than 4 MB." }, 413);
-  const raw = await req.text();
-  if (Buffer.byteLength(raw) > MAX) return reply({ error: "That page is larger than 4 MB." }, 413);
-  let body: { url?: unknown; title?: unknown; html?: unknown };
-  try {
-    body = JSON.parse(raw);
-  } catch {
-    return reply({ error: "Send JSON: {url, title, html}." }, 400);
+  const origin = req.headers.get("origin");
+  // A page on another site must not plant documents here (the extension and Arc's own tab are the only senders).
+  if (origin && origin !== new URL(req.url).origin && !cors(req)["access-control-allow-origin"]) return reply(req, { error: "Not allowed." }, 403);
+  if (Number(req.headers.get("content-length") || 0) > LIMITS.body) return reply(req, { error: TOO_BIG, code: "big" }, 413);
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for await (const c of (req.body ?? []) as unknown as AsyncIterable<Uint8Array>) {
+    total += c.length;
+    if (total > LIMITS.body) return reply(req, { error: TOO_BIG, code: "big" }, 413);
+    chunks.push(c);
   }
-  const { url, title, html } = body;
-  if (typeof url !== "string" || !/^https?:\/\//i.test(url) || typeof html !== "string" || !html) return reply({ error: "Send JSON: {url, title, html}." }, 400);
-
-  const safe = html.replace(/<script\b[\s\S]*?<\/script\s*>/gi, "").replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "");
-  const twin = parseHtml(safe, url);
-  if (typeof title === "string" && title.trim() && twin.source.title === url) twin.source.title = title.trim().slice(0, 300);
-  twin.source.via = "browser";
-  const id = createHash("sha1").update(url + html.length + Date.now()).digest("hex").slice(0, 12);
-  twin.id = `doc-${id}`;
-  await mkdir(".cache/ingest", { recursive: true });
-  await writeFile(file(id), JSON.stringify(twin));
-  warmPage(twin.nodes.flatMap((n) => (n.kind === "figure" && n.image && !n.tour ? [n.image.url] : []))); // background figure tours
-  return reply({ id, counts: twin.counts, title: twin.source.title });
+  try {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    } catch {
+      throw new IngestError("Send JSON: {url, title, html}.");
+    }
+    const { id, twin } = await ingest(validate(raw), new URL(req.url).origin);
+    return reply(req, { id, counts: twin.counts, title: twin.source.title });
+  } catch (e) {
+    if (e instanceof IngestError) return reply(req, { error: e.message, code: e.code }, e.status);
+    console.log(`[ingest] failed: ${(e as Error).name}`); // never the page's address or text
+    return reply(req, { error: "Arc could not read that page." }, 500);
+  }
 }
 
 export async function GET(req: Request) {
-  const id = new URL(req.url).searchParams.get("id") ?? "";
-  if (!/^[0-9a-f]{12}$/.test(id)) return reply({ error: "Unknown page." }, 404);
-  const saved = await readFile(file(id), "utf8").catch(() => null);
-  return saved ? new Response(saved, { headers: { ...CORS, "content-type": "application/json" } }) : reply({ error: "Unknown page." }, 404);
+  const q = new URL(req.url).searchParams;
+  const img = q.get("img");
+  if (img) {
+    const pic = /^[0-9a-f]{16}\d{1,3}$/.test(img) ? vault.getImage(img) : null;
+    if (!pic) return new Response("Gone.", { status: 404, headers: { "cache-control": "no-store" } });
+    return new Response(new Uint8Array(pic.data), { headers: { "content-type": pic.type, "cache-control": "private, no-store", "x-content-type-options": "nosniff" } });
+  }
+  const id = req.headers.get("x-arc-doc") ?? q.get("id") ?? ""; // the header keeps the id out of request logs (Arc's page sends it so)
+  const twin = /^[0-9a-f]{32}$/.test(id) ? vault.get(id) : null;
+  return twin ? reply(req, twin) : reply(req, { error: "This page is no longer here. Send it again from your tab." }, 404);
 }

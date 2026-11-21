@@ -26,7 +26,7 @@ export default function RemoteView({ url, figure }: { url: string; figure: numbe
       <button type="button" onClick={show} disabled={state === "loading"}>
         {state === "loading" ? "Opening the real page…" : "Show on the real page"}
       </button>
-      <p role="status" style={{ margin: "0.5rem 0" }}>
+      <p style={{ margin: "0.5rem 0" }}>
         {state === "loading" && "Opening the real page, this can take about 15 seconds."}
         {state === "error" && "The live page did not answer. The rest of this page still works."}
       </p>

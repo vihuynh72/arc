@@ -13,6 +13,9 @@ const AXES: { key: Axis; legend: string; options: [string, string][] }[] = [
   { key: "font", legend: "Typeface", options: [["", "Default"], ["legible", "Legible (Atkinson Hyperlegible)"]] },
   { key: "focus", legend: "Focus line", options: [["", "Off"], ["on", "On: dim everything but the current item"]] },
   { key: "motion", legend: "Motion", options: [["", "Follow my system"], ["reduce", "Reduce motion"]] },
+  { key: "pointer", legend: "Reading pointer", options: [["", "Normal"], ["large", "Large"], ["off", "Off"]] },
+  { key: "hints", legend: "Hints", options: [["", "On"], ["off", "Off"]] },
+  { key: "realPointer", legend: "Move my real mouse pointer (on this computer only)", options: [["", "Off"], ["on", "On"]] },
 ];
 
 export default function DisplaySettings() {

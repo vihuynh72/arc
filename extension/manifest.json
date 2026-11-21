@@ -1,11 +1,16 @@
 {
   "manifest_version": 3,
   "name": "Arc: read this page",
-  "version": "0.1.0",
-  "description": "Sends the page you are on to Arc, which rebuilds it as a simple page that reads aloud.",
+  "version": "0.2.0",
+  "description": "Lets Arc read pages you open, from your own browser, so Arc can read them aloud. Arc never sees your password.",
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": ["http://localhost:3000/*", "https://arc-production-815e237c.up.railway.app/*"],
-  "background": { "service_worker": "background.js" },
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "externally_connectable": { "matches": ["http://localhost:3000/*", "https://arc-production-815e237c.up.railway.app/*"] },
+  "content_scripts": [
+    { "matches": ["http://localhost:3000/*", "https://arc-production-815e237c.up.railway.app/*"], "js": ["arc-page.js"], "run_at": "document_start" }
+  ],
+  "background": { "service_worker": "background.js", "type": "module" },
   "action": { "default_title": "Read this page in Arc (Alt+Shift+A, Option+Shift+A on Mac)" },
   "commands": {
     "_execute_action": { "suggested_key": { "default": "Alt+Shift+A" }, "description": "Read this page in Arc" }

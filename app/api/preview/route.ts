@@ -3,8 +3,10 @@
 import { createHash } from "node:crypto";
 import * as cheerio from "cheerio";
 import { paperFor } from "@/lib/server/openalex";
+import { identify } from "@/lib/server/scholar";
 import { youtubeOembed } from "@/lib/server/oembed";
 import { isVideoUrl } from "@/lib/server/video";
+import { safeFetch } from "@/lib/server/safeFetch";
 import type { Twin, TwinNode } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -18,7 +20,7 @@ type Page = { title: string; summary: string; body: { heading: string; text: str
 
 /** Plain fetch with a browser User-Agent: title, description, and the first headings and paragraphs when the body is really there. */
 async function plain(url: string, signal: AbortSignal): Promise<Page | null> {
-  const res = await fetch(url, { signal, headers: { "user-agent": UA, accept: "text/html" }, redirect: "follow" });
+  const res = await safeFetch(url, { signal, headers: { "user-agent": UA, accept: "text/html" } }); // address guard on every hop
   if (!res.ok || !/html/i.test(res.headers.get("content-type") ?? "")) return null;
   const $ = cheerio.load(await res.text());
   const meta = (n: string) => squash($(`meta[name="${n}"],meta[property="${n}"]`).first().attr("content"));
@@ -66,7 +68,7 @@ export async function POST(req: Request) {
     return reply("video", v.title, [[v.title, v.author ? `A video by ${v.author}.` : ""]], "YouTube");
   }
 
-  const [page, paper] = await Promise.all([within(plain(u.href, signal)), within(paperFor(u.href, signal, hint?.title))]);
+  const [page, paper] = await Promise.all([within(plain(u.href, signal)), within(paperFor(u.href, signal, identify(u.href) ? hint?.title : undefined)) /* a title search of the paper index only for a scholarly page */]);
   const title = paper?.title || page?.title || squash(hint?.title);
   if (!title) return new Response(null, { status: 204 });
   const summary = paper?.abstract || page?.summary || squash(hint?.snippet);

@@ -41,8 +41,19 @@ let sink: ((b64: string) => void) | undefined;
 // About 200 ms of audio from before the key went down, so a word started with the key press is not clipped.
 const PRE_MS = 200;
 const TAIL_MS = 250; // people release the key while finishing the last word
+const TAIL_QUIET_MS = 80; // the last 200 ms were already quiet: only the chunk still in flight
 let pre: Int16Array[] = [];
 let level = { sum: 0, n: 0 }; // over the current ask: mean square of samples sent
+let frames: { n: number; db: number }[] = []; // per chunk sent: samples and level, for the end-of-speech and no-speech checks
+const dbOf = (ms: number) => 10 * Math.log10(ms / 0x8000 ** 2 + 1e-12);
+let cut: (() => void) | undefined;
+/** Ends the release tail now (a new ask starts straight after this one). */
+export const cutTail = () => cut?.();
+/** What the microphone heard in one ask: milliseconds clearly above the room's own noise, and the mean level. */
+export interface MicStats {
+  speechMs: number;
+  db: number;
+}
 const QUIET_DBFS = -45; // a whole ask below this is a quiet speaker or the wrong microphone
 
 /** Low-pass then decimate any input rate to 16 kHz: a 63-tap windowed sinc cut at 7 kHz, state kept across chunks. */
@@ -107,8 +118,11 @@ async function openMic() {
       while (pre.length > 1 && n - pre[0].length >= (PRE_MS * 16000) / 1000) n -= pre.shift()!.length;
       return;
     }
-    for (const v of out) level.sum += v * v;
+    let sq = 0;
+    for (const v of out) sq += v * v;
+    level.sum += sq;
     level.n += out.length;
+    frames.push({ n: out.length, db: dbOf(sq / Math.max(1, out.length)) });
     sink(pcmToB64(out));
   };
   src.connect(proc);
@@ -120,7 +134,7 @@ async function openMic() {
  * Sends microphone audio to onChunk as base64 PCM16 at 16 kHz, starting with about 200 ms from before the call, until
  * the returned stop function resolves (about 250 ms after it is called). A very quiet ask fires "arc:quiet" on window.
  */
-export async function startMic(onChunk: (b64: string) => void): Promise<() => Promise<void>> {
+export async function startMic(onChunk: (b64: string) => void): Promise<(now?: boolean) => Promise<MicStats | undefined>> {
   if (!live || live.stream.getAudioTracks()[0]?.readyState !== "live") {
     void live?.ctx.close();
     pre = [];
@@ -128,13 +142,29 @@ export async function startMic(onChunk: (b64: string) => void): Promise<() => Pr
   }
   if (live!.ctx.state === "suspended") await live!.ctx.resume();
   level = { sum: 0, n: 0 };
+  frames = [];
   for (const c of pre.splice(0)) onChunk(pcmToB64(c));
   sink = onChunk;
-  return async () => {
-    await new Promise((r) => setTimeout(r, TAIL_MS));
-    if (sink !== onChunk) return;
+  return async (now = false) => {
+    // Speech that ended before release (the last 200 ms are 18 dB under the loudest chunk) needs no tail.
+    let last = 0, n = 0;
+    for (let i = frames.length - 1; i >= 0 && n < 3200; i--) { last += frames[i].db * frames[i].n; n += frames[i].n; }
+    const peak = Math.max(-200, ...frames.map((f) => f.db));
+    const wait = now ? 0 : n && last / n < peak - 18 ? TAIL_QUIET_MS : TAIL_MS; // now: a tap has no words to finish
+    await new Promise<void>((r) => {
+      const t = setTimeout(r, wait);
+      cut = () => (clearTimeout(t), r());
+    });
+    cut = undefined;
+    const db = dbOf(level.sum / Math.max(1, level.n));
+    if (sink !== onChunk) return undefined; // another ask has taken the microphone
     sink = undefined;
-    const db = 10 * Math.log10(level.sum / Math.max(1, level.n) / 0x8000 ** 2 + 1e-12);
-    if (level.n > 16000 * 0.4 && db < QUIET_DBFS) window.dispatchEvent(new CustomEvent("arc:quiet", { detail: { db } }));
+    // Speech frames: above -50 dBFS and 10 dB over the room (the 20th percentile), so an amplified noise floor is not speech.
+    const sorted = frames.map((f) => f.db).sort((a, b) => a - b);
+    const gate = Math.max(-50, (sorted[Math.floor(sorted.length * 0.2)] ?? -120) + 10);
+    const speechMs = frames.filter((f) => f.db > gate).reduce((t, f) => t + f.n / 16, 0);
+    // A soft voice (speech over the room's noise, but under -45 dBFS overall) is "too quiet"; no speech at all is "heard nothing".
+    if (speechMs >= 120 && level.n > 16000 * 0.4 && db < QUIET_DBFS) window.dispatchEvent(new CustomEvent("arc:quiet", { detail: { db } }));
+    return { speechMs, db };
   };
 }
