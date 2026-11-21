@@ -109,8 +109,10 @@ export default function Reader({ items, paused, onTour, video = false, blocks: b
   // progUntil: Arc's own scroll is under way, ignore scroll events. settled: the stop last read. raf/timer: the scroll follower.
   // hist: places before each jump, for "go back". reading: bumped by any key or command, ends "keep reading".
   // userAt: the last wheel, touch or bar scroll by the student. moveAt: the last cursor move. anim: the glide.
+  // pin: what the last glide brought into view, held on its landing line (or at y, where it already sat) from `from` while the layout above it changes.
   const live = useRef({
     items, index: -1, blk: -1, paused, onTour, progUntil: 0, settled: -1, raf: 0, timer: 0, anim: 0, hist: [] as { id: string; b: number }[], reading: 0, userAt: -1e9, moveAt: 0, keyAt: 0,
+    pin: null as { el: HTMLElement; y?: number; from: number } | null,
     video, lang, curId: "", curBlk: "", emitId: "", ahead: new AbortController(), on, pages, page: undefined as number | undefined, ...build(items, on),
     // sec: the section of the last stop. downs: Down presses in a row with no jump (the H tip). figSeen: figures already described.
     // anyAt: the last key, command or sound (the "Paused." line waits for 6 s of nothing). unknownAt: the last "That key does nothing here".
@@ -200,20 +202,24 @@ export default function Reader({ items, paused, onTour, video = false, blocks: b
       const clear = hd && getComputedStyle(hd).position === "sticky" ? hd.getBoundingClientRect().bottom + 24 : 0;
       const bar = document.querySelector(".reader")?.getBoundingClientRect().top ?? window.innerHeight;
       const fits = r.bottom <= Math.min(window.innerHeight, bar) - 24 || r.top <= landFor(el) + 40;
-      if (r.top >= Math.max(clear, window.innerHeight * 0.12) && r.top <= window.innerHeight * 0.62 && fits) return;
+      if (r.top >= Math.max(clear, window.innerHeight * 0.12) && r.top <= window.innerHeight * 0.62 && fits) return void (L.pin = { el, y: r.top, from: performance.now() });
     }
     cancelAnimationFrame(L.anim);
     const from = window.scrollY;
-    const to = Math.max(0, Math.min(el.getBoundingClientRect().top + from - landFor(el), document.documentElement.scrollHeight - window.innerHeight));
+    // Asked for again on every frame: pictures above `el` that finish loading during the glide push it down the page.
+    const goal = () => Math.max(0, Math.min(el.getBoundingClientRect().top + window.scrollY - landFor(el), document.documentElement.scrollHeight - window.innerHeight));
+    const to = goal();
     const t0 = performance.now();
     const calm = document.documentElement.dataset.motion === "reduce"; // system setting or the Display panel (lib/client/display.ts)
     L.progUntil = t0 + (calm ? 300 : GLIDE_MS + 300);
+    L.pin = { el, from: calm ? t0 : t0 + GLIDE_MS };
     Object.assign(scrollGoal, { y: to, until: t0 + GLIDE_MS + 50 }); // components/Pointer.tsx aims the real pointer at where the page ends up
     if (calm || Math.abs(to - from) < 4) return window.scrollTo({ top: to, behavior: "instant" });
     const run = (now: number) => {
       if (L.userAt > t0) return void (L.progUntil = 0);
       const p = Math.min(1, (now - t0) / GLIDE_MS);
-      window.scrollTo({ top: from + (to - from) * (1 - (1 - p) ** 3), behavior: "instant" });
+      const end = (scrollGoal.y = goal());
+      window.scrollTo({ top: from + (end - from) * (1 - (1 - p) ** 3), behavior: "instant" });
       if (p < 1) L.anim = requestAnimationFrame(run);
     };
     L.anim = requestAnimationFrame(run);
@@ -334,6 +340,7 @@ export default function Reader({ items, paused, onTour, video = false, blocks: b
       L.settled = skey(i, b);
       L.moveAt = performance.now();
       if (opts.scroll !== false) glide(els.park, opts.near);
+      else L.pin = null; // the cursor moved and the page did not: nothing is held in place
       place(true);
       // The node-level event: when the node changes (always, where nodes are the stops). Block moves have their own.
       if (!L.on || L.emitId !== node.id) {
@@ -827,9 +834,23 @@ export default function Reader({ items, paused, onTour, video = false, blocks: b
     };
   }, [moveTo]);
 
-  // Keep the ring on its stop when the layout changes (zoom, images loading).
+  // Keep the ring on its stop when the layout changes (zoom, images loading), and the page on what Arc last brought into view:
+  // a page's pictures have no size until they load, so each one above the stop pushes it down the screen (a tour of figure 20
+  // opened on a first visit showed figures 18 and 19). Never after the student's own scroll, which wins.
   useEffect(() => {
-    const again = () => place(false);
+    const hold = () => {
+      const L = live.current;
+      if (L.userAt > L.moveAt) return;
+      const tour = document.querySelector<HTMLElement>("#content [data-tour]");
+      if (tour) return void ((L.progUntil = performance.now() + 300), tour.scrollIntoView({ block: "start" })); // as components/FigureTour.tsx parks it
+      const pin = L.pin;
+      if (!pin?.el.isConnected || performance.now() < pin.from) return; // a glide under way aims for itself
+      const d = pin.el.getBoundingClientRect().top - (pin.y ?? landFor(pin.el)); // a figure grown tall by its own picture parks under the header
+      if (Math.abs(d) < 3) return;
+      L.progUntil = performance.now() + 300; // Arc's own scroll: the cursor does not follow it
+      window.scrollBy({ top: d, behavior: "instant" });
+    };
+    const again = () => (hold(), place(false));
     window.addEventListener("resize", again);
     const ro = new ResizeObserver(again);
     ro.observe(document.body);

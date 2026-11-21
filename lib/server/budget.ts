@@ -300,8 +300,10 @@ export const visitorSpend = (v: string) => spendBy().get(v) ?? 0;
 /** Pure: whether a Gemini error says the prepaid balance is empty (as opposed to a per-minute rate limit). */
 export function saysDepleted(status: number, body: string): boolean {
   if (status === 402) return true;
-  // Narrow on purpose: a Live close reason such as "load balancing" or a per-minute quota must not pause the whole app.
-  return (status === 429 || status === 403) && /prepay|credits? (?:are |is |have been )?(?:depleted|exhausted|exceeded)|billing|spending cap|insufficient (?:balance|funds|credit)/i.test(body);
+  // Narrow on purpose: a Live close reason such as "load balancing" or a per-minute quota must not pause the whole app. Google's
+  // ordinary rate-limit answer says "You exceeded your current quota, please check your plan and billing details": the bare word
+  // "billing" is therefore not a sign of an empty balance (it once switched the voice off for five minutes, on 2026-11-21).
+  return (status === 429 || status === 403) && /prepay|credits? (?:are |is |have been )?(?:depleted|exhausted|exceeded)|billing (?:account|is (?:not enabled|disabled)|has not been enabled|must be enabled)|enable billing|spending cap|insufficient (?:balance|funds|credit)/i.test(body);
 }
 
 /** Call with every failed Gemini response. Remembers an empty balance for a few minutes so nothing hammers it. */

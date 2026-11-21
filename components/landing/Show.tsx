@@ -58,9 +58,13 @@ export default function Show({ scenes, label, voice, bar }: { scenes: Scene[]; l
   const [live, setLive] = useState(false); // on screen, in a visible tab
   const [calm, setCalm] = useState(false); // reduced motion: stills only
   const [keyed, setKeyed] = useState(false); // keyboard focus is on a control...
-  const [over, setOver] = useState(false); // ...or the pointer is: the scene plays to its end and waits there, so no label changes under a hand
+  // ...or the pointer is anywhere on the show, the picture being watched included: the scene plays to its end and waits there, so no
+  // label changes under a hand. (It once held only on the list and the buttons: a visitor watching the chart with the pointer on it
+  // reached for "Try it: open this chart" as the next scene began, and opened the lecture.)
+  const [over, setOver] = useState(false);
   const held = keyed || over;
-  const hover = { onPointerEnter: () => setOver(true), onPointerLeave: () => setOver(false) };
+  // Move as well as enter: a pointer already on the show when the page's scripts arrive never enters it.
+  const hover = { onPointerEnter: () => setOver(true), onPointerMove: () => setOver(true), onPointerLeave: () => setOver(false) };
   const stage = useRef<HTMLDivElement>(null);
   const run = playing && live && !calm;
   const scene = scenes[g.at];
@@ -152,8 +156,9 @@ export default function Show({ scenes, label, voice, bar }: { scenes: Scene[]; l
       data-calm={calm || undefined}
       onFocus={(e) => setKeyed(e.target.matches(":focus-visible"))}
       onBlur={() => setKeyed(false)}
+      {...hover}
     >
-      <div className="lx-rail" {...hover}>
+      <div className="lx-rail">
         <div className="lx-list" role="toolbar" aria-label={label} aria-orientation="vertical" onKeyDown={rove}>
           {scenes.map((sc, i) => (
             <button key={sc.id} type="button" aria-label={`${sc.name}: ${sc.what}`} aria-pressed={i === g.at} tabIndex={i === g.at ? 0 : -1} onClick={() => setG((x) => to(x, i, run ? 0 : stillFrom(sc, 0)))}>
@@ -201,7 +206,7 @@ export default function Show({ scenes, label, voice, bar }: { scenes: Scene[]; l
         </div>
       </div>
 
-      <div className="lx-ctl" {...hover}>
+      <div className="lx-ctl">
         {!calm && (
           <button type="button" aria-label={`${playing ? "Pause" : "Play"}: ${label}`} onClick={() => (setPlaying(!playing), setG(settle))}>
             {playing ? "Pause" : "Play"}

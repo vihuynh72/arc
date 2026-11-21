@@ -906,6 +906,16 @@ export default function Twin() {
     const want = link ? addressFor(link) : "/";
     if (location.pathname + location.search !== want) history.replaceState(history.state, "", want); // Next's own history state stays
   }, [twin, found]);
+  // Another document on screen (a link opened, the results, the start page again) starts at its top: the window keeps its scroll
+  // position when the content under it is replaced, so a link opened from far down the start page (its "Try it" buttons) showed the
+  // middle of the paper and the tail of a lecture. The first move of the cursor, or a reload's saved place, goes from there.
+  const docKey = found ? "results" : (twin?.source.url ?? "");
+  const lastDoc = useRef(docKey);
+  useLayoutEffect(() => {
+    if (lastDoc.current === docKey) return;
+    lastDoc.current = docKey;
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [docKey]);
   // After a reload that lost a private page or a file: the start page says so, once. Before the start page's own greeting can take the
   // first key (layout effects run before it registers), so a browser that holds sound back says this line at the first key or touch.
   useLayoutEffect(() => {

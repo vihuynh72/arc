@@ -6,7 +6,7 @@ Everything about hosting a copy: the voice options, the spend guard, visitor lim
 
 ## Deploy (an open public link)
 
-Arc runs as one long-lived Node process (`npm start`), never serverless. On a small host set `ARC_KOKORO=off`: pages are then read by the Gemini voice (about $0.02 a minute of speech), or, if you also set `ARC_BROWSER_VOICE=on`, by Kokoro in the visitor's own browser once it has downloaded.
+Arc runs as one long-lived Node process (`npm start`), never serverless. `npm start` keeps the process on two CPUs unless `ARC_CPUS` says otherwise; the reading voice wants more. Measured on Railway (2026-11-21) with `ARC_CPUS=8`: a new sentence is ready in 0.6 to 1.6 s, four to eight times faster than it is spoken, and the voice came up 7 s after the start. With two CPUs it was too slow to use. On a small host set `ARC_KOKORO=off`: pages are then read by the Gemini voice (about $0.02 a minute of speech), or, if you also set `ARC_BROWSER_VOICE=on`, by Kokoro in the visitor's own browser once it has downloaded.
 
 **Browser voice (opt-in).** With `ARC_KOKORO=off` and `ARC_BROWSER_VOICE=on`, a visitor's Chrome or Edge with WebGPU reads English with Kokoro (af_bella, the same audio as the server's) in the browser itself, free: after the first key press it downloads the voice once (about 331 MB: the 326 MB model from Hugging Face, the 5 MB compressed runtime from this server; 3.4 minutes on the test connection) while the Gemini voice keeps reading, then switches at the next paragraph. A visitor's browser contacts huggingface.co (and its download host hf.co) only to download the voice; nothing about the page they read is sent there, and the browser keeps the files, so the next visit starts at once. Without WebGPU, or with Save-Data on, nothing downloads. Licences: kokoro-js and transformers.js Apache-2.0, the Kokoro-82M model (and its ONNX export) Apache-2.0, onnxruntime-web MIT; the phonemizer package is marked Apache-2.0 but contains eSpeak NG, which is GPL-3.0. Everything paid is guarded in one place (`lib/server/budget.ts`, prices in `lib/server/prices.ts`), and visitor limits sit in `server.ts` (`lib/server/limits.ts`). Both are on when `NODE_ENV=production`.
 
@@ -17,6 +17,7 @@ As today's estimated Gemini spend crosses the daily budget, Arc degrades in orde
 | `GEMINI_API_KEY`, `BRIGHTDATA_API_TOKEN`, `BRIGHTDATA_UNLOCKER_ZONE`, `BRIGHTDATA_BROWSER_WSS`, `BRIGHTDATA_SERP_ZONE` | Service keys and zones (never commit them) |
 | `NODE_ENV=production` | Production build; turns on the budget guard and visitor limits |
 | `ARC_KOKORO=off` | No local voice (small host); reading uses the Gemini voice |
+| `ARC_CPUS` | How many CPUs `npm start` keeps the process on (default 2). The local voice uses up to 8 |
 | `ARC_BROWSER_VOICE=on` | Visitors' browsers read with their own Kokoro: free and the same voice as the laptop's, but a first visit downloads about 331 MB (default: off) |
 | `ARC_DAILY_BUDGET_USD` | Daily Gemini budget in dollars (default 2), UTC day |
 | `ARC_DAILY_BD_REQUESTS`, `ARC_DAILY_BD_NAVS` | Daily Bright Data caps: Web Unlocker plus SERP requests (default 400), Browser API navigations (default 40) |

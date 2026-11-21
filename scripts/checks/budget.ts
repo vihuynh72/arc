@@ -40,6 +40,10 @@ export default function check() {
   assert.ok(B.saysDepleted(429, '{"error":{"status":"RESOURCE_EXHAUSTED","message":"Your prepayment credits are depleted."}}'));
   assert.ok(!B.saysDepleted(429, '{"error":{"status":"RESOURCE_EXHAUSTED","message":"Quota exceeded for metric requests per minute"}}'));
   assert.ok(!B.saysDepleted(429, "Service is unavailable due to load balancing")); // a real Live close reason shape: not money
+  // Google's ordinary rate-limit answer (seen on the hosted copy): it names "billing" and is not an empty balance.
+  assert.ok(!B.saysDepleted(429, '{"error":{"code":429,"message":"You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits.","status":"RESOURCE_EXHAUSTED"}}'));
+  assert.ok(B.saysDepleted(403, "This API method requires billing to be enabled. Please enable billing on project #1."));
+  assert.ok(B.saysDepleted(429, "Your project is temporarily rate-limited to prevent exceeding its monthly spending cap."));
   assert.ok(B.saysDepleted(429, "Your project has exceeded its spending cap."));
   B.resetForTest(0);
   B.noteGeminiFailure(402, "credits are depleted");
