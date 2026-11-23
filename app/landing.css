@@ -1486,6 +1486,63 @@ body:has(.landing) {
   color: var(--ink);
 }
 
+/* The helper install: one heading, a few sentences, then the steps. Keys here sit in running text, so they are smaller. */
+.lp-helper {
+  max-width: 46rem;
+}
+.lp-helper .lp-sub {
+  margin-bottom: 1.25rem;
+}
+.lp-helper p {
+  margin: 0 0 1rem;
+}
+.lp-helper kbd {
+  min-width: 1.75rem;
+  height: 1.75rem;
+  padding: 0 0.5rem;
+  font-size: 0.8125rem;
+  vertical-align: baseline;
+}
+.lp-helper code {
+  font-family: var(--lx-mono);
+  font-size: 0.9375em;
+}
+.lp-helper-note {
+  color: var(--muted);
+}
+.lp-helper .lp-helper-steps {
+  margin: 0 0 1.5rem;
+  padding: 0 0 0 1.5rem;
+  list-style: decimal;
+}
+.lp-helper-steps li {
+  padding: 0.375rem 0 0.375rem 0.5rem;
+  line-height: 1.75rem;
+}
+.lp-helper-steps li::marker {
+  color: var(--muted);
+  font-weight: 600;
+}
+.lp-add {
+  display: inline-block;
+  padding: 0.75rem 1.5rem;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--bg);
+  font-weight: 600;
+  text-decoration: none;
+}
+.lp-add:hover {
+  color: var(--bg);
+  background: var(--link);
+}
+.lp-helper-on {
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
 .lp-pipe {
   margin-top: 2rem;
 }

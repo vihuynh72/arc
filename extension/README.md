@@ -6,7 +6,9 @@ Lets Arc read pages from your own browser, where you are already signed in: the 
 
 1. Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, choose this `extension/` folder.
 2. After any change to these files, press **Reload** on the Arc card (manifest changes need it).
-3. Optional: **Details > Extension options** sets the Arc address (default `http://localhost:3000`) and lists the sites you allowed.
+3. Optional: **Details > Extension options** sets the Arc address and lists the sites you allowed. The default is the hosted copy, `https://arc-production-815e237c.up.railway.app`, so nothing needs setting. To use Arc running on your own computer, set it to `http://localhost:3000` and press Save.
+
+From the Chrome Web Store (when listed) the helper installs the same way and uses the hosted copy. `npm run pack:extension` writes `arc-helper.zip` at the repo root for upload; `STORE.md` holds the listing text.
 
 ## What it does, and will not do
 
@@ -17,7 +19,7 @@ Lets Arc read pages from your own browser, where you are already signed in: the 
 
 ## Five-minute manual test
 
-Start Arc (`npm run dev`) and the pretend course site: `node scripts/private-fixture.mjs` (http://127.0.0.1:8765). Press **Reload** on the extension first.
+Start Arc (`npm run dev`), set the helper's Arc address to `http://localhost:3000` in its options (the default is the hosted copy), and start the pretend course site: `node scripts/private-fixture.mjs` (http://127.0.0.1:8765). Press **Reload** on the extension first. (The scripts `private-e2e.ts` and `handoff-e2e.ts` do not load the extension; they take the Arc address as an argument.)
 
 1. Open http://127.0.0.1:8765/course/pages/cells without signing in. Press Alt+Shift+A. Arc opens and you hear: "That page asked you to sign in. Sign in to it in your browser, then try again." (Arc refuses a sign-in page.)
 2. Open http://127.0.0.1:8765/login (it just sets a cookie and shows the Cells page). Press Alt+Shift+A. You hear "Read from your tab.", then "This page came from your own account. Arc keeps it only while you use it, and descriptions and answers about it are made by Gemini.", then "Cells and membranes." and the section count. The diagram is on screen; the equation is read as "J equals negative D the fraction d c, over d x". The address bar shows no `?doc=`.

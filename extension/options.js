@@ -1,9 +1,9 @@
-import { allowedSites, originPattern } from "./rules.js";
+import { DEFAULT_ARC, allowedSites, originPattern } from "./rules.js";
 
 const box = document.getElementById("origin");
-chrome.storage.sync.get({ origin: "http://localhost:3000" }).then(({ origin }) => (box.value = origin));
+chrome.storage.sync.get({ origin: DEFAULT_ARC }).then(({ origin }) => (box.value = origin));
 document.getElementById("save").addEventListener("click", async () => {
-  await chrome.storage.sync.set({ origin: box.value.trim() || "http://localhost:3000" });
+  await chrome.storage.sync.set({ origin: box.value.trim() || DEFAULT_ARC });
   document.getElementById("saved").textContent = "Saved.";
 });
 

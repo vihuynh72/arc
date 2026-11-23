@@ -5,7 +5,7 @@
 //    message this extension: manifest externally_connectable, checked again here). The helper reads only sites the student
 //    allowed once on the consent page (optional host permissions), in a background tab that is closed afterwards.
 // The chrome.* calls sit behind one small layer (`chromeLayer`) so scripts/checks/extension.ts can drive makeHelper() with stubs.
-import { LINES, allowedSites, isArcOrigin, matchFrames, originPattern, refuseUrl } from "./rules.js";
+import { DEFAULT_ARC, LINES, allowedSites, isArcOrigin, matchFrames, originPattern, refuseUrl } from "./rules.js";
 
 const SETTLE_MS = 30_000; // the tab's own load; extract.js then waits for a quiet spell of its own
 const CONSENT_MS = 3 * 60_000;
@@ -154,7 +154,7 @@ export function chromeLayer() {
     version: ch.runtime.getManifest().version,
     log: (...a) => console.warn("Arc:", ...a),
     hasPermission: (pattern) => ch.permissions.contains({ origins: [pattern] }),
-    arcOrigin: async () => (await ch.storage.sync.get({ origin: "http://localhost:3000" })).origin,
+    arcOrigin: async () => (await ch.storage.sync.get({ origin: DEFAULT_ARC })).origin,
     fetch: (u, init) => fetch(u, init),
     openTab: (url) => ch.tabs.create({ url }),
     openConsent: async (origin) => (await ch.tabs.create({ url: ch.runtime.getURL(`consent.html?origin=${encodeURIComponent(origin)}`), active: true })).id,
