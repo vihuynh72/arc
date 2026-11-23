@@ -167,4 +167,12 @@ export const HELPER_LINE =
   "The Arc helper is a Chrome extension. Once it is installed, press Alt Shift A on any page, Option Shift A on a Mac, and Arc opens that page and reads it. " +
   (HELPER_STORE_URL
     ? "To install it, open the Chrome Web Store and search for: Arc, read this page."
-    : "It is not in the Chrome Web Store yet. Until it is, it has to be added by hand: the steps are on the start page, under the heading, Send any page to Arc with one key.");
+    : "It is not in the Chrome Web Store yet. Until it is, it has to be added by hand. Say helper steps to hear how.");
+/** The by-hand install, spoken: the start page's own section is not read aloud. */
+export const HELPER_STEPS =
+  "One: download Arc from its GitHub page and unzip it. Two: in Chrome, open the address chrome, colon, slash, slash, extensions. Three: turn on Developer mode. Four: choose Load unpacked, and pick the extension folder inside Arc. " +
+  "These steps are easier with someone who can see the screen. The same steps are written on the start page.";
+/** "What do you keep about me?" (docs/privacy.md, in three sentences). */
+export const KEEPS_LINE =
+  "Arc has no accounts and does not know who you are. The pages you opened and where you stopped are kept in this browser only: say forget what I opened to clear them. " +
+  "A page from your own account or a file you upload stays in Arc's memory for about two hours and is never saved. Your questions and the pictures on a page go to Google's Gemini to be answered and described.";
