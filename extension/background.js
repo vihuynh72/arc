@@ -129,16 +129,19 @@ export function makeHelper(c) {
     if (reading.has(`tab:${tab.id}`)) return;
     reading.add(`tab:${tab.id}`);
     try {
+      // Arc opens at once and says it is reading: reading and sending take seconds, and the key press must not be met with silence.
+      const waiting = await Promise.resolve(c.openTab(`${arc}/#sending`)).catch(() => null);
+      const show = (url) => (waiting?.id != null ? Promise.resolve(c.goTab(waiting.id, url)).catch(() => c.openTab(url)) : c.openTab(url));
       let page;
       try {
         page = await extract(tab.id);
       } catch (e) {
         // chrome:// pages, the Web Store, the New Tab page cannot be read by any extension.
         c.log("Chrome did not let the extension read this tab.", e);
-        return void (await c.openTab(`${arc}/?notice=restricted`));
+        return void (await show(`${arc}/?notice=restricted`));
       }
       const r = await post(arc, page).catch(() => ({ error: "unreachable" }));
-      await c.openTab(r.id ? `${arc}/#doc=${r.id}` : `${arc}/?notice=failed`); // a fragment: never in a request log
+      await show(r.id ? `${arc}/#doc=${r.id}` : `${arc}/?notice=failed`); // a fragment: never in a request log
     } finally {
       reading.delete(`tab:${tab.id}`);
     }
@@ -157,6 +160,7 @@ export function chromeLayer() {
     arcOrigin: async () => (await ch.storage.sync.get({ origin: DEFAULT_ARC })).origin,
     fetch: (u, init) => fetch(u, init),
     openTab: (url) => ch.tabs.create({ url }),
+    goTab: (tabId, url) => ch.tabs.update(tabId, { url }),
     openConsent: async (origin) => (await ch.tabs.create({ url: ch.runtime.getURL(`consent.html?origin=${encodeURIComponent(origin)}`), active: true })).id,
     onTabClosed: (tabId, fn) => {
       const l = (id) => id === tabId && (ch.tabs.onRemoved.removeListener(l), fn());

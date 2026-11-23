@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Arc: read this page",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Lets Arc read pages you open, from your own browser, so Arc can read them aloud. Arc never sees your password.",
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": ["http://localhost:3000/*", "https://arc-production-815e237c.up.railway.app/*"],

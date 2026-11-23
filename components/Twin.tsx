@@ -867,6 +867,28 @@ export default function Twin() {
       });
       return;
     }
+    // #sending: the helper opened this tab the moment its key was pressed and is still reading the other tab. Say so at once;
+    // the helper then moves this tab to #doc=<id> (a fragment change, so no reload), or to ?notice= when it could not.
+    if (location.hash === "#sending") {
+      history.replaceState(history.state, "", location.pathname);
+      const line = "Reading the page from your tab.";
+      const late = setTimeout(() => {
+        const gone = "The Arc helper could not send that page to Arc. Try the shortcut again.";
+        setStatus(gone);
+        void speaker.say([gone]);
+      }, 45_000);
+      const arrived = () => {
+        const id = /^#doc=([0-9a-f]{32})$/.exec(location.hash)?.[1];
+        if (!id) return;
+        clearTimeout(late);
+        window.removeEventListener("hashchange", arrived);
+        history.replaceState(history.state, "", location.pathname);
+        void loadDoc(id, "Here it is."); // "Read from your tab." would repeat the line just said
+      };
+      window.addEventListener("hashchange", arrived);
+      void Promise.resolve().then(() => (setStatus(line), speaker.say([line])));
+      return;
+    }
     // An empty or non-web ?url= comes from an older extension that could not read the tab (chrome://, New Tab page).
     const notice = p.get("notice") ?? (p.has("url") && !/^https?:\/\//i.test(url ?? "") ? "restricted" : null);
     if (!url && !q && !doc && !notice) return;
