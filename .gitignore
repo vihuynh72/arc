@@ -48,9 +48,16 @@ next-env.d.ts
 CLAUDE.md
 AGENTS.md
 .impeccable/
+.notes/
 
 # blind-student harness session logs
 scripts/blind/logs/
 
 # editor and merge leftovers
 *.orig
+
+# packed Chrome extension (npm run pack:extension)
+arc-helper.zip
+
+# agent worktrees
+.claude/worktrees/

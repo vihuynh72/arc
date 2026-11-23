@@ -1,7 +1,9 @@
 // What the Arc helper will and will not do, as plain functions (no chrome.* here), so scripts/checks/extension.ts can test them.
 
 /** The only pages that may message the helper (also listed in manifest.json externally_connectable and host_permissions). */
-export const ARC_ORIGINS = ["http://localhost:3000", "https://arc-production-815e237c.up.railway.app"];
+/** Where the helper sends pages unless the options page says otherwise: the hosted copy, so a store install needs no setup. */
+export const DEFAULT_ARC = "https://arc-production-815e237c.up.railway.app";
+export const ARC_ORIGINS = ["http://localhost:3000", DEFAULT_ARC];
 export const isArcOrigin = (o) => typeof o === "string" && ARC_ORIGINS.includes(o);
 
 export const LINES = {

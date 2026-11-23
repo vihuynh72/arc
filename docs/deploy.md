@@ -24,6 +24,7 @@ As today's estimated Gemini spend crosses the daily budget, Arc degrades in orde
 | `ARC_VISITOR_DAILY_USD` | One visitor address's share of the day's estimated Gemini spend (default 0.50; an IPv6 address counts by its /64). Measured: opening the demo paper about $0.15, a ten-minute lecture $0.12, the paid reading voice about $0.02 a minute, so a full study session with questions fits and the $2 day serves at least four visitors. Past it that visitor hears the daily budget line |
 | `ARC_VOICE_MINUTES_PER_VISITOR` | Minutes of Gemini speech one visitor address may hear a day (default 30) |
 | `ARC_VOICE_PER_IP`, `ARC_VOICE_TOTAL` | Open voice connections per visitor (2) and in all (12) |
+| `ARC_LIVE_RESUME` | `on` or `off`. Whether Google may hold a voice session for up to 24 hours so a dropped connection continues. Default: off on a hosted copy, on in development |
 | `ARC_VOICE_IDLE_MS`, `ARC_VOICE_MAX_MS` | A voice connection closes after 10 idle minutes, and after 45 minutes in all (the page reopens one) |
 | `ARC_WARM_FIGURES`, `ARC_WARM_CHARTS=off` | How many figures get a tour prepared in the background per page (30), and whether chart data is read before a student reaches the chart |
 | `ARC_MAX_VIDEO_S` | Longest lecture Arc reads, in seconds (7200) |

@@ -159,3 +159,12 @@ export function sectionNo(heads: { heading: string }[], i: number): { no: string
   if (nums.some(Boolean)) return { no: "", of: nums.filter((x) => x && x.num.length === 1).length, name: heads[i].heading.trim() };
   return { no: String(i + 1), of: heads.length, name: heads[i].heading.trim() };
 }
+
+/** The Chrome Web Store address of the Arc helper (extension/). Empty until the listing is published (extension/STORE.md). */
+export const HELPER_STORE_URL = "";
+/** Said when a student asks how to get the helper. The start page's own section is not read aloud, so this line has to carry it. */
+export const HELPER_LINE =
+  "The Arc helper is a Chrome extension. Once it is installed, press Alt Shift A on any page, Option Shift A on a Mac, and Arc opens that page and reads it. " +
+  (HELPER_STORE_URL
+    ? "To install it, open the Chrome Web Store and search for: Arc, read this page."
+    : "It is not in the Chrome Web Store yet. Until it is, it has to be added by hand: the steps are on the start page, under the heading, Send any page to Arc with one key.");
