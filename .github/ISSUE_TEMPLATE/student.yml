@@ -1,0 +1,28 @@
+name: I am blind or have low vision, or I teach students who are
+description: Tell us what did not work for you. Short answers are fine.
+labels: ["from a student or teacher"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What were you trying to do?
+    validations:
+      required: true
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened instead?
+    validations:
+      required: true
+  - type: input
+    id: link
+    attributes:
+      label: The page, PDF or video, if you can share it
+  - type: input
+    id: setup
+    attributes:
+      label: Your browser, and your screen reader if you use one
+  - type: textarea
+    id: change
+    attributes:
+      label: The one thing you would change

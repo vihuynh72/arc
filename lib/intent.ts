@@ -30,7 +30,7 @@
 // | contents, outline, what is in this section | article: the headings spoken as a list; "the second one" then picks from it        |
 
 import { byName, contents, figureByWords, figureRef, findRef, findText, inside, ordinal, parseRef, path, relate, topicWords, topLevel, type Entry, type Found, type Unit } from "./outline";
-import { SPEED_KEYS, tourOffer, type Style } from "./keys";
+import { HELPER_LINE, SPEED_KEYS, tourOffer, type Style } from "./keys";
 
 export type Mode = "landing" | "article" | "results" | "video" | "tour";
 export interface Offer {
@@ -991,6 +991,10 @@ const ABROAD: Record<string, string> = {
   "đọc lại": "again", "trợ giúp": "help", "giúp tôi": "help", "tiếp tục": "go on", "đọc tiếp": "go on", "chậm hơn": "slower", "chậm lại": "slower", "nhanh hơn": "faster", "tôi đang ở đâu": "where am i",
 };
 
+// "How do I install the helper?": answered here, because the mode's help line would otherwise take it and never mention the helper.
+// Narrow on purpose: a page may talk about helper cells or browser extensions.
+const ASKS_HELPER = /\barc helper\b|\b(?:install|add|get|set up|download)\b.*\b(?:helper|extension)\b|\bsend (?:this|a|any|the|my) (?:page|tab)\b/;
+
 export function resolveLocal(utterance: string, c: Ctx): Resolved | null {
   const s = normalise(utterance.normalize("NFC"));
   if (!s) return null;
@@ -1003,6 +1007,7 @@ export function resolveLocal(utterance: string, c: Ctx): Resolved | null {
       ? { name: "none", say: `That does not look like a link. Do you want me to search for ${broken}? Say yes.`, offer: { name: "search", args: { query: broken }, say: `Searching for ${broken}.` } }
       : { name: "none", say: "That does not look like a link. Paste the whole address, starting with https." };
   if (FILLER.test(s)) return { name: "none", say: NOT_CAUGHT_LINE };
+  if (ASKS_HELPER.test(s)) return { name: "none", say: HELPER_LINE };
   if (MORE_HELP.has(s) && !(s === "more" && c.mode !== "landing")) return { name: "none", say: help(c, true) };
   if (s.split(" ").length <= 12) {
     const o = orient(s, c);

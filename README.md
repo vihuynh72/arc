@@ -103,7 +103,9 @@ A few rules the code holds itself to: a student is never left in silence; Arc ac
 
 - No accounts, no logins, no stored student data.
 - Private pages and uploaded PDFs live in the server's memory only, for about two hours, never on disk, in an address or in a log.
-- A hosted copy keeps no recordings or transcripts of what visitors ask.
+- A hosted copy keeps no recordings or transcripts of what visitors ask, and does not ask Google to hold a voice session for later (session resumption is off there).
+- What leaves your browser, to which service and for how long: [docs/privacy.md](docs/privacy.md).
+- Arc is for college students and adults, 18 and over.
 
 Details: [private pages](docs/private-pages.md).
 

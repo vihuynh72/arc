@@ -48,6 +48,7 @@ next-env.d.ts
 CLAUDE.md
 AGENTS.md
 .impeccable/
+.notes/
 
 # logs and screenshots of a CI e2e run (scripts/factory.mjs --ci --artifacts e2e-artifacts)
 /e2e-artifacts/
@@ -57,3 +58,9 @@ scripts/blind/logs/
 
 # editor and merge leftovers
 *.orig
+
+# packed Chrome extension (npm run pack:extension)
+arc-helper.zip
+
+# agent worktrees
+.claude/worktrees/

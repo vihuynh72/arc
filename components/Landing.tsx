@@ -1,8 +1,9 @@
+import HelperInstall from "@/components/landing/HelperInstall";
 import Seen from "@/components/landing/Seen";
 import Show from "@/components/landing/Show";
 import Spectrum from "@/components/landing/Spectrum";
 import { ARC, TODAY } from "@/components/landing/scenes";
-import { GREETING } from "@/lib/keys";
+import { GREETING, HELPER_STORE_URL } from "@/lib/keys";
 
 // What Arc shows when nothing is loaded; rendered by the empty branch in components/Twin.tsx. The one box stays in the header
 // above, so the first form control is still the ask box. Four movements: what Arc is, what blind students get today (quoted from
@@ -30,7 +31,7 @@ const STEPS = [
 const STACK = [
   ["Gemini", "A decision model turns a request into a command and acts only when it is sure. Gemini Live carries spoken questions and answers. Gemini vision writes figure tours, reads chart values and describes what a lecture shows."],
   ["Bright Data", "Reaches live pages: Web Unlocker for pages that block plain requests, the Browser API for pages that only work in a real browser, and search."],
-  ["Kokoro", "The open-source reading voice. It runs on the same machine as Arc when that machine can carry it; a small hosted copy reads with a Gemini voice."],
+  ["Kokoro", "The open-source reading voice. It runs on the same machine as Arc, so reading costs nothing and no page text leaves Arc to be spoken."],
   ["Open scholarly indexes", "OpenAlex, Crossref, Semantic Scholar and PubMed find a paper’s legal free copy when its link is behind a paywall."],
   ["Next.js and TypeScript", "One Node process serves the app and the voice socket. Parsing and spatial directions are plain code."],
 ];
@@ -89,6 +90,14 @@ export default function Landing() {
         <p className="lp-say">
           Or say it: <q>find a paper about knee rehabilitation</q>, <q>open the first one</q>, <q>tour figure one</q>, <q>bigger text</q>, <q>I am blind</q>.
         </p>
+
+        <div className="lp-helper">
+          <h3 id="helper-title">Send any page to Arc with one key</h3>
+          <p className="lp-sub">
+            The Arc helper is a Chrome extension. Press one key on the page you are on, and Arc opens it and reads it aloud. It reads from your own browser, so pages behind a sign-in work too. Arc never gets your password, cookies or tokens, and the helper never clicks or types for you.
+          </p>
+          <HelperInstall storeUrl={HELPER_STORE_URL} />
+        </div>
       </section>
 
       <section className="lp-how" aria-labelledby="how-title">

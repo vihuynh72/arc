@@ -17,7 +17,8 @@ function stub(o: { allowed?: string[]; consent?: boolean; finalUrl?: string; pag
     hasPermission: async (p: string) => (calls.push(["has", p]), allowed.has(p)),
     arcOrigin: async () => "http://localhost:3000",
     fetch: async (u: string, init: { body: string }) => (calls.push(["fetch", u, JSON.parse(init.body).url]), { ok: true, json: async () => ({ id: "f".repeat(32) }) }),
-    openTab: async (u: string) => void calls.push(["openTab", u]),
+    openTab: async (u: string) => (calls.push(["openTab", u]), { id: 9 }),
+    goTab: async (id: number, u: string) => void calls.push(["goTab", u, id]),
     openConsent: async (origin: string) => {
       calls.push(["consent", origin]);
       if (o.consent) allowed.add(`${origin}/*`);
@@ -117,7 +118,8 @@ export default async function check() {
   {
     const s = stub();
     await s.helper.sendTab({ id: 3, url: "https://canvas.example.edu/courses/1/quizzes/3/take" });
-    assert.deepEqual(s.names(), ["run", "fetch", "openTab"]);
+    assert.deepEqual(s.names(), ["openTab", "run", "fetch", "goTab"]); // Arc opens first and says it is reading; the same tab then gets the page
+    assert.equal(s.calls[0][1], "http://localhost:3000/#sending");
     assert.equal(s.calls.at(-1)![1], `http://localhost:3000/#doc=${"f".repeat(32)}`);
   }
 }

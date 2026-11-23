@@ -212,6 +212,10 @@ export default function check() {
   ])
     assert.equal(r(w, art()), null, w);
   assert.deepEqual(r("find a paper about knee rehabilitation", art()), { name: "search", args: { query: "knee rehabilitation" }, say: "Searching for knee rehabilitation." }); // the web, not this page
+  // the helper: its own answer, not the mode's help line; a page about helper cells or browser extensions is left alone
+  for (const w of ["how do I install the helper?", "How do I get the extension", "what is the arc helper", "how do i send this page to arc", "can I send a page from my browser", "add the chrome extension"])
+    assert.match(String(r(w, land)?.say), /^The Arc helper is a Chrome extension/, w);
+  for (const w of ["what is a T helper cell", "what does the paper say about browser extensions", "send me the next page"]) assert.doesNotMatch(String(r(w, art())?.say), /Arc helper/, w);
   assert.equal(r("", art()), null);
   assert.equal(r("one", res), null);
 }

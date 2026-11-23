@@ -1,0 +1,25 @@
+name: Something is broken
+description: Arc did the wrong thing, stayed silent, or showed an error.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps
+      description: The link you opened and the keys or words you used, in order.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Hosted copy or your own copy, and the browser
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else (what Arc said, console errors)
