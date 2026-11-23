@@ -12,6 +12,9 @@ export const SR_MS_PER_CHAR = 60;
 export const SR_MIN_MS = 600;
 
 export const VOICE = "af_bella";
+// A clip's address is given back a little after it is done with: an audio element that was still loading it when it was cut
+// logs "Failed to load resource: net::ERR_FILE_NOT_FOUND" if the address is already gone.
+const giveBack = (u: string) => void setTimeout(() => URL.revokeObjectURL(u), 3000);
 // prio tells the server which clip to make first: 0 = about to play, 1 and 2 = read-ahead, 9 = warm-up.
 // lang is the page's language, given only for the page's own words (never for Arc's English lines): the server refuses one the voice cannot read.
 const ask = (text: string, prio = 0, lang?: string, signal?: AbortSignal) =>
@@ -233,7 +236,7 @@ class Speaker {
     const fromLocal = (t: string) => localVoice.clip(t, VOICE, ctl.signal).then((b) => (b ? URL.createObjectURL(b) : null));
     const get = (i: number, prio: number) =>
       void (i < chunks.length && !held(i) && (clips[i] ??= local ? fromLocal(chunks[i]) : kokoro.off ? undefined : fetchClip(chunks[i], ctl.signal, prio, items[i].lang)));
-    const drop = (from: number) => void clips.splice(from).forEach((c) => void c?.then((u) => u && u !== SKIP && URL.revokeObjectURL(u)));
+    const drop = (from: number) => void clips.splice(from).forEach((c) => void c?.then((u) => u && u !== SKIP && giveBack(u)));
     let unread = false;
     if (local) for (let i = 0; i < chunks.length; i++) get(i, 0); // made one after another in the browser: all asked at once
     for (let i = 0; i < chunks.length && mine === this.gen; i++) {
@@ -270,7 +273,7 @@ class Speaker {
         this.live = false;
       }
     }
-    for (const c of clips) void c?.then((u) => u && u !== SKIP && URL.revokeObjectURL(u));
+    for (const c of clips) void c?.then((u) => u && u !== SKIP && giveBack(u));
     if (mine === this.gen) this.busy = false;
     return mine === this.gen && !unread;
   }
@@ -294,7 +297,7 @@ class Speaker {
     };
     this.notice = this.notice
       .then(() => Promise.all([fetchClip(line, new AbortController().signal), free()]))
-      .then(([u]) => (u && u !== SKIP ? this.play(u, line).finally(() => URL.revokeObjectURL(u)) : undefined))
+      .then(([u]) => (u && u !== SKIP ? this.play(u, line).finally(() => giveBack(u)) : undefined))
       .catch(() => {});
   }
 
