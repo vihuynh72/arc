@@ -66,7 +66,7 @@ export default function VideoPlayer({ twin, onEnrich, onTour, startAt }: Props) 
 
   useEffect(() => {
     // The start page's greeting is not for a video that has opened: if it is still being said, it stops.
-    if (speaker.busy && speaker.recent.at(-1)?.text === GREETING) speaker.cancel();
+    if (speaker.busy && speaker.recent.at(-1)?.text.startsWith(GREETING)) speaker.cancel();
     return () => watchVideo(null);
   }, []);
 

@@ -17,6 +17,7 @@ import { prefetchClip, speaker, startWaitTone } from "@/lib/client/reader";
 import { answering, answerSounded, answerText, askAudio, askEnd, askResult, askStart, audioState, budgetOf, budgetSeen, chime, dropAnswer, playAnswer, say, stop, stopAnswer, type AskHooks } from "@/lib/client/voice";
 
 import { GREETING, NOTHING_PLAYING } from "@/lib/keys";
+import { greeting } from "@/lib/client/recent";
 const EMPTY_BOX = "Type a link or a question, or hold Space and talk.";
 // With the model refused, nothing transcribes speech (Live does): say so, and what still works.
 const NO_EARS = "I can't understand speech right now, because Arc's listening service is unavailable. Press slash, type what you want, and press Enter.";
@@ -78,13 +79,13 @@ export default function AskButton() {
   // The greeting as soon as the start page is ready, where the browser lets a page sound before any gesture. A refused clip never
   // starts (lib/client/reader.ts skips it), so "greeted" is set only when its sound really began; until then the first gesture greets.
   useEffect(() => {
-    prefetchClip(GREETING);
+    prefetchClip(greeting());
     const began = (e: Event) => {
       const d = (e as CustomEvent<{ kind: string; text?: string; phase?: string }>).detail;
-      if (d?.kind === "speech" && d.phase === "start" && d.text === GREETING) greeted.current = true;
+      if (d?.kind === "speech" && d.phase === "start" && d.text?.startsWith(GREETING)) greeted.current = true;
     };
     window.addEventListener("arc:heard", began);
-    const t = setTimeout(() => onLanding() && !greeted.current && !speaker.busy && void speaker.say([GREETING]), 400);
+    const t = setTimeout(() => onLanding() && !greeted.current && !speaker.busy && void speaker.say([greeting()]), 400);
     return () => {
       clearTimeout(t);
       window.removeEventListener("arc:heard", began);
@@ -392,7 +393,7 @@ export default function AskButton() {
       greeted.current = true;
       if (!onLanding()) return false; // a page is open: it has said its own first line
       if (e instanceof KeyboardEvent && ["Shift", "Control", "Alt", "Meta"].includes(e.key)) return (greeted.current = false); // the next key greets
-      void speaker.say([GREETING]);
+      void speaker.say([greeting()]);
       e.preventDefault();
       e.stopImmediatePropagation();
       return true;

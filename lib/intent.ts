@@ -30,7 +30,8 @@
 // | contents, outline, what is in this section | article: the headings spoken as a list; "the second one" then picks from it        |
 
 import { byName, contents, figureByWords, figureRef, findRef, findText, inside, ordinal, parseRef, path, relate, topicWords, topLevel, type Entry, type Found, type Unit } from "./outline";
-import { HELPER_LINE, SPEED_KEYS, tourOffer, type Style } from "./keys";
+import { cue, HELPER_LINE, SPEED_KEYS, tourOffer, type Style } from "./keys";
+import { findRecent, saidTitle, type Recent } from "./client/recent";
 
 export type Mode = "landing" | "article" | "results" | "video" | "tour";
 export interface Offer {
@@ -72,6 +73,7 @@ export interface Ctx {
   thread?: { q: string; a: string; at: number }; // Arc's last turn was this answer (or question back) from the question session
   behind?: string; // results: the title of the page they were searched from; a page: the results it was opened from
   findAt?: number; // when the last find landed: "next one" then means the next match
+  recent?: Recent[]; // landing: the pages kept from before in this browser, newest first (lib/client/recent.ts), for "continue"
 }
 export const THREAD_MS = 90_000; // a reply to Arc's answer or question comes within this
 /** Arc's last turn was an answer or a question, and nothing was read since: the next words are first a reply to it. */
@@ -96,7 +98,8 @@ export const NOT_CAUGHT_LINE = "Sorry, I didn't catch that. Could you say it aga
 
 /** Help by voice, for a student who has only been talking: no key is named. */
 function voiceHelp(c: Ctx): string {
-  if (c.mode === "landing") return "Say what you want to study, for example: photosynthesis for biology. Or say open the example paper. I read pages to you, and you can ask me anything about them. Say stop to make me quiet.";
+  const BACK = c.recent?.length ? " Say continue to go back to what you opened before." : "";
+  if (c.mode === "landing") return `Say what you want to study, for example: photosynthesis for biology. Or say open the example paper.${BACK} I read pages to you, and you can ask me anything about them. Say stop to make me quiet.`;
   if (c.mode === "tour") return "You are in a picture tour. Say that's enough to leave it. It goes through the parts by itself: say hold on to pause it and go on to carry on. Say next or back to move yourself, and again to hear one again. You can also ask me about the picture.";
   if (c.mode === "results") return `These are search results. Say open and a number, for example open the first one. Say more to hear more of them, or say a new topic to search again.${c.behind ? " Say go back to return to your page." : ""}`;
   if (c.mode === "video") return `This is a lecture video. Say play or pause, back ten seconds or skip ahead, next for the next part, faster or slower, or what is on the screen. You can ask me anything about the lecture.${c.behind ? " Say go back to the results to leave it." : ""}`;
@@ -119,6 +122,7 @@ export const notUnderstood = (c: Ctx) => `I'm not sure what you meant. ${suggest
 
 /** Help for where the student is: three to five short sentences. `more`: the fuller list, in groups. */
 export function help(c: Ctx, more = false): string {
+  const BACK = c.recent?.length ? " Say continue to go back to what you opened before." : "";
   // A tour, said both ways: the same steps, by voice and by key, so the two never disagree.
   if (c.mode === "tour" && c.how === "both" && !more) return "You are in a picture tour. Say that's enough, or press Escape, to leave it. It plays by itself: say hold on, or press P, to pause, and go on to carry on. Say next or back, or use the Right and Left Arrows, to move yourself. You can also ask me about the picture.";
   if (c.how === "voice" || (c.how === "both" && !more)) return voiceHelp(c) + (c.how === "both" ? " With the keyboard, press question mark for the keys." : "");
@@ -131,7 +135,7 @@ export function help(c: Ctx, more = false): string {
     return `Moving: next, back, next section, section 2.1, go to and a section name, figure 3, top, end, go back.${pdf} Finding: find and a word, then next match. Where you are: where am I, how much is left, what comes next, contents, read the title. Reading: again, slower, faster, normal speed, stop. Questions: hold Space and ask anything about the page.`;
   }
   const tail = " Escape stops me. Say more help for the full list.";
-  if (c.mode === "landing") return `Paste a link and press Enter, or hold Space and say what you want to study. You can also say open the example paper. Press slash to type.${tail}`;
+  if (c.mode === "landing") return `Paste a link and press Enter, or hold Space and say what you want to study. You can also say open the example paper.${BACK} Press slash to type.${tail}`;
   if (c.mode === "tour") return "You are in a figure tour. Escape leaves the tour. It plays by itself; P pauses. Right or Down Arrow is the next stop, Left or Up goes back, Enter repeats. Hold Space to ask about this part.";
   if (c.mode === "results") return `These are search results. Down arrow reads the next one. Press Enter on one, or a number key, to open it. Escape goes back${c.behind ? " to your page" : ""}.${tail}`;
   if (c.mode === "video") return `This is a lecture video. K, P or a tap of Space plays and pauses, J and L go back and forward ten seconds, and less-than and greater-than change its speed. Down and Up move between parts, and V switches between its sound and my reading. Hold Space to ask a question.${tail}`;
@@ -995,6 +999,46 @@ const ABROAD: Record<string, string> = {
 // Narrow on purpose: a page may talk about helper cells or browser extensions.
 const ASKS_HELPER = /\barc helper\b|\b(?:install|add|get|set up|download)\b.*\b(?:helper|extension)\b|\bsend (?:this|a|any|the|my) (?:page|tab)\b/;
 
+// The start page only: going back to what was opened before (lib/client/recent.ts). Elsewhere these words mean what they always did
+// ("continue" while reading goes on reading). "my file" and "my pdf" stay the file chooser.
+const RECENT_LAST = /^(?:continue|resume|continue reading|(?:continue|resume|pick up|carry on) (?:from )?where (?:i|we) (?:left off|stopped)|pick up where i left off|what was i reading|open my last(?: one)?)$/;
+const RECENT_OF = /^(?:continue|open|resume|go back to|pick up) (?:with )?my ((?:\S+ ?){1,6})$/;
+const RECENT_LIST = new Set(["what have i opened", "what did i open", "my materials", "recent", "my recent", "recent pages", "my list", "show my list", "read my list", "open my list", "go back to my list"]);
+const RECENT_FORGET = new Set(["forget what i opened", "clear my list", "forget my materials", "forget my list", "clear my materials"]);
+function recentLocal(utterance: string, s: string, c: Ctx): Resolved | null {
+  const how = c.how ?? "keys";
+  const say = (line: string): Resolved => ({ name: "none", say: line });
+  const list = c.recent ?? [];
+  const nothing = say(cue(how, "Nothing is kept from before on this browser yet. Say what you want to study.", "Nothing is kept from before on this browser yet. Paste a link and press Enter.", "Nothing is kept from before on this browser yet. Paste a link, or hold Space and say what you want to study."));
+  const open = (e: Recent): Resolved => ({ name: "open", args: { url: e.url, ...(e.place && { place: e.place }) }, say: `Opening ${saidTitle(e.title)}${e.place ? ", where you left off" : ""}.` });
+  const p = polite(s);
+  if (RECENT_FORGET.has(p)) return { name: "forgetRecent", say: "Forgotten. Nothing from before is kept on this browser." };
+  // A number or "the second one", right after the list was read.
+  if (c.list && list.length && (c.now ?? Date.now()) - c.list.at <= LIST_MS * 4) {
+    const e = ordinal(utterance, c.list.entries);
+    const hit = e && list.find((r) => r.url === e.id);
+    if (hit) return open(hit);
+  }
+  if (RECENT_LIST.has(p)) {
+    if (!list.length) return nothing;
+    const top = list.slice(0, 5);
+    return {
+      ...say(
+        `${list.length === 1 ? "One is kept." : `${list.length} are kept.`} ${top.map((e, i) => `${i + 1}, ${saidTitle(e.title)}.`).join(" ")} ${cue(how, "Say continue, or say a number.", "Type continue, or a number.", "Say continue, or say a number.")}`,
+      ),
+      list: top.map((e, i) => ({ i, id: e.url, label: e.title, level: 2, kind: "section" as const })),
+    };
+  }
+  if (RECENT_LAST.test(p)) return list.length ? open(list[0]) : nothing;
+  const of = !UPLOAD.has(p) && p.match(RECENT_OF);
+  if (!of) return null;
+  const hit = findRecent(list, of[1]);
+  if (hit) return open(hit);
+  // "open my chemistry notes" with no such title kept is a request for something new: it goes on to the search, as before.
+  if (!/^(?:continue|resume|pick up)\b/.test(p)) return null;
+  return list.length ? say(`I did not find that among what you opened. The newest is ${saidTitle(list[0].title)}. Say continue to open it.`) : nothing;
+}
+
 export function resolveLocal(utterance: string, c: Ctx): Resolved | null {
   const s = normalise(utterance.normalize("NFC"));
   if (!s) return null;
@@ -1009,6 +1053,10 @@ export function resolveLocal(utterance: string, c: Ctx): Resolved | null {
   if (FILLER.test(s)) return { name: "none", say: NOT_CAUGHT_LINE };
   if (ASKS_HELPER.test(s)) return { name: "none", say: HELPER_LINE };
   if (MORE_HELP.has(s) && !(s === "more" && c.mode !== "landing")) return { name: "none", say: help(c, true) };
+  if (c.mode === "landing") {
+    const k = recentLocal(utterance, s, c);
+    if (k) return k;
+  }
   if (s.split(" ").length <= 12) {
     const o = orient(s, c);
     if (o) return o;

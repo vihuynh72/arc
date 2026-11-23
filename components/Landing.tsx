@@ -1,4 +1,5 @@
 import HelperInstall from "@/components/landing/HelperInstall";
+import Recent from "@/components/landing/Recent";
 import Seen from "@/components/landing/Seen";
 import Show from "@/components/landing/Show";
 import Spectrum from "@/components/landing/Spectrum";
@@ -39,6 +40,8 @@ const STACK = [
 export default function Landing() {
   return (
     <div className="landing">
+      <Recent />
+
       <section className="lp-hero" aria-labelledby="landing-title">
         <h1 id="landing-title">
           {"Study any paper, chart or lecture by ear.".split(" ").map((w, i) => (

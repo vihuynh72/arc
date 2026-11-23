@@ -178,6 +178,41 @@ body:has(.landing) {
   }
 }
 
+/* What was opened before, in this browser only (components/landing/Recent.tsx): a short list above the hero, shown only when something is kept. */
+.lp-recent {
+  max-width: 46rem;
+  margin: 0;
+  padding: 2rem 0 0;
+}
+.landing .lp-recent h2 {
+  max-width: none;
+  margin: 0 0 0.75rem;
+  font-size: clamp(1.5rem, 1.25rem + 0.9vw, 2rem);
+  line-height: 1.1;
+  letter-spacing: normal;
+}
+.lp-recent li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--hair);
+}
+.lp-recent li a {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+.lp-recent li span {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+.lp-recent button {
+  margin-top: 0.75rem;
+}
+
 /* ---------- 2. The problem: a band of its own, edge to edge ---------- */
 
 .lp-problem {
