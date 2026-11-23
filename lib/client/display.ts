@@ -19,6 +19,7 @@ export interface Display {
   pointer?: "large" | "off"; // the drawn reading pointer (components/Pointer.tsx); missing: normal size
   realPointer?: "on"; // also move the real mouse pointer (lib/client/pointer.ts), only where the server allows it; off by default
   voiceFirst?: true; // "I am blind": everything shown is also said, reading runs on, moves say where they land
+  sr?: "on"; // EXPERIMENTAL: Arc's reading lines go to the student's own screen reader (lib/client/srLive.ts) instead of Arc's voice; off by default
   hints?: "off"; // the one-time spoken tips ("Tip: H jumps to the next heading."); missing: on
 }
 
@@ -54,6 +55,9 @@ export const DISPLAY_COMMANDS: Record<string, string> = {
   "voice-first": "I am blind, I cannot see the screen, voice first, blind mode",
   "voice-first-off": "turn off voice first",
 };
+// Not in DISPLAY_COMMANDS: the decision model is not told about it; only the narrow local phrases in lib/intent.ts and the Display panel set it.
+export const SR_ON = "Screen reader mode on. Arc now writes to your screen reader; figure tours and answers still use Arc's voice.";
+export const SR_OFF = "Screen reader mode off. Arc speaks in its own voice again.";
 
 export const VOICE_FIRST_ON = "Okay. I will tell you everything out loud. Hold Space to talk, arrow keys to move.";
 /** Voice first is on (persisted with the display settings). */
@@ -80,6 +84,7 @@ export function paint(s: Display) {
   d.dataset.motion = s.motion || (m("(prefers-reduced-motion: reduce)") ? "reduce" : "auto");
   d.dataset.pointer = s.pointer || "normal";
   d.dataset.realPointer = s.realPointer || "off";
+  d.dataset.sr = s.sr || "off";
 }
 
 export const BOOT = `try{(${paint.toString()})(JSON.parse(localStorage.getItem(${JSON.stringify(KEY)})||"{}"))}catch(e){}`;
@@ -101,14 +106,16 @@ export function save(s: Display) {
 
 /** Pure: the new choice and the one short sentence that confirms it, for one display command. */
 export function applyCommand(s: Display, cmd: string): [Display, string] | null {
+  if (cmd === "sr-on") return [{ ...s, sr: "on" }, SR_ON];
+  if (cmd === "sr-off") return [{ ...s, sr: undefined }, SR_OFF];
   if (cmd === "voice-first") return [{ ...s, voiceFirst: true }, VOICE_FIRST_ON];
   if (cmd === "voice-first-off") {
     const rest = { ...s };
     delete rest.voiceFirst;
     return [rest, "Voice first off."];
   }
-  if (cmd in PROFILES) return [{ ...PROFILES[cmd as Profile].set, profile: cmd as Profile, ...(s.voiceFirst ? { voiceFirst: true as const } : {}) }, `${PROFILES[cmd as Profile].label}.`];
-  if (cmd === "reset") return [{}, "Display reset."];
+  if (cmd in PROFILES) return [{ ...PROFILES[cmd as Profile].set, profile: cmd as Profile, ...(s.voiceFirst ? { voiceFirst: true as const } : {}), ...(s.sr ? { sr: "on" as const } : {}) }, `${PROFILES[cmd as Profile].label}.`];
+  if (cmd === "reset") return [s.sr ? { sr: "on" } : {}, "Display reset."];
   if (cmd in THEMES) return [{ ...s, theme: cmd as Theme }, `${THEMES[cmd as Theme]}.`];
   const at = SIZES.indexOf(s.text ?? "100");
   if (cmd === "bigger" || cmd === "smaller") {

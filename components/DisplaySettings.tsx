@@ -2,7 +2,7 @@
 // The one "Display" button in the header, mounted by app/page.tsx, and its panel: five ready-made profiles first,
 // each axis behind "More options". Also runs the "display" voice and typed command (lib/client/decide.ts dispatches it).
 import { useEffect, useRef, useState } from "react";
-import { applyCommand, load, PROFILES, save, SIZES, THEMES, type Display, type Profile } from "@/lib/client/display";
+import { applyCommand, load, PROFILES, save, SIZES, SR_OFF, SR_ON, THEMES, type Display, type Profile } from "@/lib/client/display";
 import { said, speaker } from "@/lib/client/reader";
 
 type Axis = Exclude<keyof Display, "profile">;
@@ -66,8 +66,20 @@ export default function DisplaySettings() {
           <legend>Ready-made profile</legend>
           {(Object.keys(PROFILES) as Profile[]).map((p) => (
             <label key={p}>
-              <input type="radio" name="display-profile" value={p} checked={(s.profile ?? "default") === p} onChange={() => set({ ...PROFILES[p].set, profile: p })} />
+              <input type="radio" name="display-profile" value={p} checked={(s.profile ?? "default") === p} onChange={() => set({ ...PROFILES[p].set, profile: p, sr: s.sr })} />
               {PROFILES[p].label}
+            </label>
+          ))}
+        </fieldset>
+        <fieldset aria-describedby="display-sr-note">
+          <legend>Use my screen reader</legend>
+          <p id="display-sr-note">
+            Experimental. Arc sends its words to your screen reader instead of speaking. Not yet tried with JAWS or NVDA. Figure tours and answers still use Arc&apos;s voice.
+          </p>
+          {[["", "Off: Arc speaks"], ["on", "On: my screen reader speaks"]].map(([v, label]) => (
+            <label key={v}>
+              <input type="radio" name="display-sr" value={v} checked={(s.sr ?? "") === v} onChange={() => (set({ ...s, sr: v ? "on" : undefined }), said(v ? SR_ON : SR_OFF), void speaker.say([v ? SR_ON : SR_OFF]))} />
+              {label}
             </label>
           ))}
         </fieldset>
@@ -86,7 +98,7 @@ export default function DisplaySettings() {
           ))}
         </details>
         <p className="display-actions">
-          <button type="button" onClick={() => set({})}>
+          <button type="button" onClick={() => set(s.sr ? { sr: "on" } : {})}>
             Reset
           </button>
           <button type="button" onClick={() => dialog.current?.close()}>

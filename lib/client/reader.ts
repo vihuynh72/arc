@@ -1,9 +1,15 @@
 // Browser-side reading voice for Reader.tsx and Twin.tsx. Speech is Kokoro audio from /api/speak, never speechSynthesis.
 import type { TwinNode } from "@/lib/types";
-import { kokoro, prefetch as prefetchLive, say as sayLive, stop as stopLive } from "./voice";
+import { answering, kokoro, prefetch as prefetchLive, say as sayLive, stop as stopLive } from "./voice";
 import { heard } from "./heard";
 import { postSpeak } from "./clip";
 import { localVoice } from "./localVoice";
+import { announce, silence, srOn } from "./srLive";
+
+// Screen reader mode: Arc cannot hear when the student's screen reader finishes a line, so it waits an estimate before the next
+// sentence, or the region would overwrite it. shortcut: a fixed rate, a fast or slow screen reader will clip or lag; upgrade with real use.
+export const SR_MS_PER_CHAR = 60;
+export const SR_MIN_MS = 600;
 
 export const VOICE = "af_bella";
 // prio tells the server which clip to make first: 0 = about to play, 1 and 2 = read-ahead, 9 = warm-up.
@@ -19,7 +25,7 @@ const keep = (key: string, b: Blob) => (kept.delete(key), kept.set(key, b), kept
 const asking = new Set<string>();
 const warm = (text: string, prio: number, lang?: string, signal?: AbortSignal) => {
   const key = keyOf(text, lang);
-  if (kept.has(key) || asking.has(key)) return;
+  if (srOn() || kept.has(key) || asking.has(key)) return; // screen reader mode makes no clips
   asking.add(key);
   void ask(text, prio, lang, signal)
     .then(async (r) => (learn(r), r.status === 200 && keep(key, await r.blob())), () => {})
@@ -159,7 +165,7 @@ export const prefetchClip = (text: string) => void (!kokoro.off && warm(text, 9)
 export const probeLanguage = (lang: string) => void (!kokoro.off && warm("Hello.", 9, lang));
 /** The next stop's first clip while this one plays (prio 2: after this stop's own next clips). Abortable: the reader drops it when the cursor goes elsewhere. */
 export const prefetchAhead = (text: string, signal: AbortSignal, lang?: string) =>
-  void (localVoice.pick([{ text, lang }], speaker.rate) === "local" ? localVoice.clip(text, VOICE, signal) : !kokoro.off && !(lang && speaker.blocked === lang) && warm(text, 2, lang, signal));
+  void (srOn() ? undefined : localVoice.pick([{ text, lang }], speaker.rate) === "local" ? localVoice.clip(text, VOICE, signal) : !kokoro.off && !(lang && speaker.blocked === lang) && warm(text, 2, lang, signal));
 
 /** A block's chunks with the first cut to about one clause, so its clip is made in about a second (later chunks stay as they are).
  * span[k] is the sentence (the [data-s] span) that chunk k belongs to. */
@@ -210,6 +216,15 @@ class Speaker {
     const chunks = items.map((c) => c.text);
     const now = Date.now();
     this.recent = [...this.recent.filter((r) => now - r.at < 10_000), { text: chunks.join(" "), at: now }];
+    if (srOn()) {
+      // No audio and no request: each sentence goes to the live region, with the same events and the same promise as the audio path.
+      for (let i = 0; i < chunks.length && mine === this.gen; i++) {
+        onChunk?.(i);
+        await this.write(chunks[i]);
+      }
+      if (mine === this.gen) this.busy = false;
+      return mine === this.gen;
+    }
     const ctl = (this.ctl = new AbortController());
     const clips: (Promise<string | null> | undefined)[] = [];
     const held = (i: number) => !!items[i].lang && items[i].lang === this.blocked; // this page's language cannot be read aloud
@@ -296,6 +311,7 @@ class Speaker {
     if (this.busy) this.cutAt = performance.now();
     this.gen++;
     this.busy = false;
+    silence();
     this.ctl?.abort();
     this.audio?.pause();
     this.release?.();
@@ -303,6 +319,25 @@ class Speaker {
       this.live = false;
       stopLive();
     }
+  }
+
+  /** One sentence for the screen reader: announced, then waited out; cancel() ends the wait through `release` (a "cut", like a clip). */
+  private write(text: string) {
+    return new Promise<void>((done) => {
+      const ms = Math.max(SR_MIN_MS, text.length * SR_MS_PER_CHAR);
+      const t0 = performance.now();
+      if (!answering()) announce(text); // never over a tour line or an answer that Arc is playing as audio
+      heard({ kind: "speech", voice: "arc", text, phase: "start" });
+      const end = () => {
+        clearTimeout(timer);
+        const frac = Math.min(1, (performance.now() - t0) / ms);
+        heard({ kind: "speech", voice: "arc", text, phase: frac >= 1 ? "end" : "cut", frac });
+        this.release = null;
+        done();
+      };
+      const timer = setTimeout(end, ms);
+      this.release = end;
+    });
   }
 
   private play(url: string, text = "") {

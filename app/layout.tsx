@@ -29,8 +29,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           Arc reads aloud in its own voice, so you may want your screen reader&apos;s speech off while you use it: in VoiceOver,
           Command F5 turns VoiceOver off; in NVDA, press NVDA plus S until speech is off; in JAWS, press Insert plus Space, then S,
           until speech is muted. Then press question mark for Arc&apos;s keys; in NVDA or JAWS, first press NVDA plus Space or
-          Insert plus Z, so the keys reach Arc.
+          Insert plus Z, so the keys reach Arc. Or keep your screen reader speaking: say &quot;use my screen reader&quot;, or turn on
+          Use my screen reader in Display; this is experimental.
         </p>
+        {/* The one live region for that mode (lib/client/srLive.ts): empty unless it is on, so it adds nothing to the note above. */}
+        <div id="sr-live" className="sr-only" aria-live="assertive" aria-atomic="true" />
         <a className="skip" href="#content">
           Skip to the page
         </a>
