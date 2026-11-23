@@ -67,10 +67,15 @@ export default function FigureTour({ node, onLeave }: { node: TwinNode; onLeave:
   // The self-running tour: on, paused (P, Space, "hold on"), or off (the student goes at their own pace). A quick chart tour waits
   // for its values; a student who took over or paused an earlier tour in this visit starts at their own pace.
   const [start] = useState<Auto>(() => (quick || ownPace ? "off" : "on"));
-  // How to leave, then how to pause (or go on) is the last clause before the first part.
+  // How to leave, then how to pause (or go on) is the last clause before the first part: in the first tour of a visit that plays by
+  // itself, and the first at the student's own pace. Later tours go straight to their parts (question mark still lists the keys).
+  const [howTo] = useState(() => {
+    const k = start === "on" ? "how:self" : "how:pace";
+    return hintsSaid.has(k) ? "" : `${leaveLine()} ${start === "on" ? tourSelf(inputStyle()) : paceLine()}`;
+  });
   const intro = quick
     ? `${base} You can explore the layout now.`
-    : `${base}${chart ? "" : unplacedLine(stops)}${spokenHint ? ` ${spokenHint}` : ""} ${leaveLine()} ${start === "on" ? tourSelf(inputStyle()) : paceLine()}`;
+    : `${base}${chart ? "" : unplacedLine(stops)}${spokenHint ? ` ${spokenHint}` : ""}${howTo ? ` ${howTo}` : ""}`;
   const [i, setI] = useState(-1); // -1: overview
   const [speed, setSpeedState] = useState(getTourSpeed());
   const [paused, setPaused] = useState(false);
@@ -183,6 +188,7 @@ export default function FigureTour({ node, onLeave }: { node: TwinNode; onLeave:
     window.addEventListener("arc:heard", words);
     opening.current(-1, false);
     if (spokenHint) hintsSaid.add(spokenHint);
+    if (howTo) hintsSaid.add(start === "on" ? "how:self" : "how:pace");
     return () => {
       r.current++;
       stop();
