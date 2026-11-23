@@ -82,7 +82,7 @@ export default function AskButton() {
     prefetchClip(greeting());
     const began = (e: Event) => {
       const d = (e as CustomEvent<{ kind: string; text?: string; phase?: string }>).detail;
-      if (d?.kind === "speech" && d.phase === "start" && d.text?.startsWith(GREETING)) greeted.current = true;
+      if (d?.kind === "speech" && d.phase === "start" && d.text === greeting()) greeted.current = true;
     };
     window.addEventListener("arc:heard", began);
     const t = setTimeout(() => onLanding() && !greeted.current && !speaker.busy && void speaker.say([greeting()]), 400);

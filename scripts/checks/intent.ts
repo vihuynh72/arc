@@ -218,7 +218,7 @@ export default function check() {
     assert.match(String(r(w, land)?.say), /^The Arc helper is a Chrome extension/, w);
   for (const w of ["what is a T helper cell", "what does the paper say about browser extensions", "send me the next page"]) assert.doesNotMatch(String(r(w, art())?.say), /Arc helper/, w);
   // out of a page by voice (three simulated students could not find a way: 2026-11-23); "go to the start" and "start over" stay the top of the page
-  for (const w of ["go home", "go back to the start page", "take me to the start page", "leave this paper", "close this and go home", "home page"]) assert.equal(r(w, art())?.name, "home", w);
+  for (const w of ["go home", "go back to the start page", "take me to the start page", "leave this paper", "close this and go home", "home page", "exit", "I am done with this paper", "I want to read something different", "I want to study something new", "the start page please", "take me back to the beginning of Arc"]) assert.equal(r(w, art())?.name, "home", w);
   assert.notEqual(r("go to the start", art())?.name, "home");
   assert.notEqual(r("go home", land)?.name, "home");
   assert.match(String(r("what do you keep about me?", art())?.say), /^Arc has no accounts/);

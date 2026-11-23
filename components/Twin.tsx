@@ -1023,7 +1023,14 @@ export default function Twin() {
         const url = args?.url ?? h.found?.results[typeof args?.at === "number" ? args.at : Number(args?.id?.slice(1)) - 1]?.url;
         if (url && h.twin?.links?.some((l) => l.url === url)) h.follow(url);
         else if (url) {
-          if (args?.place) h.resumeAt(url, args.place, true); // from what was opened before: opens where the student left off, as a reload does
+          if (args?.place) {
+            // From what was opened before: opens where the student left off, as a reload does. "Opening <title>, where you left
+            // off." is heard to its end first (the load cut it after one word); the page is fetched meanwhile by the browser's cache or not at all.
+            const go = () => (h.resumeAt(url, args.place!, true), h.open(url));
+            const t0 = performance.now();
+            const wait = () => (speaker.busy && performance.now() - t0 < 6000 ? void setTimeout(wait, 100) : go());
+            return void setTimeout(wait, 150);
+          }
           h.open(url);
         }
       }

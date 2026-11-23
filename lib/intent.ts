@@ -1047,7 +1047,7 @@ function recentLocal(utterance: string, s: string, c: Ctx): Resolved | null {
 const HELPER_HOW = /^(?:(?:the |read (?:me )?the )?helper steps|how do i add (?:it|the helper) by hand)$/;
 const ASKS_KEPT = /\bwhat do you (?:keep|store|save|know|remember|record) about me\b|\bdo you (?:keep|store|save|record) (?:my|what i|anything)\b|\bwhat (?:data|information) do you (?:keep|store|collect)\b/;
 // "go to the start" and "start over" stay the top of the page; "leave" alone is the tour's and the results' own word.
-const GO_HOME = /^(?:go home|home|home ?page|start ?page|(?:go|take me|get me|bring me)(?: back)? to (?:the |arc's )?(?:home|home ?page|start ?page|home screen|start screen)|back to (?:the )?(?:home|start) ?(?:page|screen)|(?:leave|close|exit|quit) (?:this|the)(?: (?:paper|page|article|pdf|video|lecture|document|file))?(?: and go (?:home|back))?|close (?:this|it) and go home)$/;
+const GO_HOME = /^(?:go home|home|exit|i am done(?: with (?:this|the)(?: (?:paper|page|article|pdf|video|lecture|document))?)?|i want (?:to (?:read|study|open|find|look at|do) )?something (?:new|different|else)|(?:a |open a )?(?:new|another|different) (?:paper|page|article)|(?:the )?(?:start|home) ?(?:page|screen)|(?:go|take me|get me|bring me)(?: back)? to the (?:beginning|start) of(?: arc)?|home ?page|start ?page|(?:go|take me|get me|bring me)(?: back)? to (?:the |arc's )?(?:home|home ?page|start ?page|home screen|start screen)|back to (?:the )?(?:home|start) ?(?:page|screen)|(?:leave|close|exit|quit) (?:this|the)(?: (?:paper|page|article|pdf|video|lecture|document|file))?(?: and go (?:home|back))?|close (?:this|it) and go home)$/;
 /** Away from the start page: the kept list can still be heard and cleared; opening from it is the start page's ("continue"). */
 function recentAnywhere(p: string, c: Ctx): Resolved | null {
   const list = c.recent ?? [];
@@ -1073,7 +1073,7 @@ export function resolveLocal(utterance: string, c: Ctx): Resolved | null {
   if (ASKS_HELPER.test(s)) return { name: "none", say: HELPER_LINE };
   if (ASKS_KEPT.test(s)) return { name: "none", say: KEEPS_LINE };
   // Out of a page, a lecture or the results, to the start page: the greeting there says where the student is (and offers "continue").
-  if (c.mode !== "landing" && GO_HOME.test(polite(s))) return { name: "home", say: "Back to the start page." };
+  if (c.mode !== "landing" && GO_HOME.test(polite(s))) return { name: "home" };
   if (c.mode !== "landing") {
     const k = recentAnywhere(polite(s), c);
     if (k) return k;
