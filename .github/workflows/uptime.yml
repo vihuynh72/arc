@@ -1,0 +1,23 @@
+# Is the hosted copy up? Every 30 minutes: the start page must answer and the reading voice must speak one sentence.
+# A failed run emails the repository owner (GitHub's own notification). Costs nothing: no model call is made.
+name: uptime
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+permissions: {}
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      ARC: https://arc-production-815e237c.up.railway.app
+    steps:
+      - name: The start page answers
+        run: curl --fail --silent --show-error --max-time 30 --retry 2 --retry-delay 20 "$ARC/" | grep -q "Arc"
+      - name: The reading voice speaks
+        run: |
+          code=$(curl --silent --output /dev/null --write-out "%{http_code}" --max-time 60 --retry 2 --retry-delay 20 \
+            -X POST "$ARC/api/speak" -H "content-type: application/json" -d '{"text":"Arc is up."}')
+          echo "speak answered $code"
+          test "$code" = "200"
