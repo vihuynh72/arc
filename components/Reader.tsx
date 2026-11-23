@@ -494,10 +494,10 @@ export default function Reader({ items, paused, onTour, video = false, blocks: b
   }, [readOn]);
   // After a speed change or a repeated sentence by voice, reading that was running carries on (after the next sentence starts).
   const resumeFlow = useCallback(
-    (after?: number) => {
+    (after?: number, anyStyle = false) => {
       const L = live.current;
       const c = L.cut;
-      if (!c?.flow || c.key !== hereKey(L) || inputStyle() !== "voice") return false;
+      if (!c?.flow || c.key !== hereKey(L) || (!anyStyle && inputStyle() !== "voice")) return false;
       void readOn(Math.max(stopAt(L), 0), { chunk: after ?? c.k, through: true });
       return true;
     },
@@ -512,8 +512,10 @@ export default function Reader({ items, paused, onTour, video = false, blocks: b
     const r = speaker.setRate(speaker.rate + by);
     setRate(r);
     if (live.current.video) return; // the lecture may be playing: VideoPlayer gives its own tick
-    void speaker.say([rateLine(by > 0 ? "faster" : "slower", r)]);
-  }, []);
+    // Reading that was running carries on at the new speed: the speed keys exist to be used while listening.
+    // The line said to its end means no other key came in between; what was cut is noted by then (it is noted as the cut reading ends).
+    void speaker.say([rateLine(by > 0 ? "faster" : "slower", r)]).then((ok) => ok && resumeFlow(undefined, true));
+  }, [resumeFlow]);
 
   // P (play or pause), V (the other way to follow) and Escape, for a video: sent after the voice is cancelled, so the player speaks last.
   const vid = useCallback(
@@ -922,7 +924,9 @@ export default function Reader({ items, paused, onTour, video = false, blocks: b
         said(line);
         L.cut = cut;
         if (L.video) return; // the lecture may be playing: VideoPlayer follows the speed with its own tick, never words over the teacher
-        void speaker.say([line]).then((ok) => ok && L.cut === cut && resumeFlow());
+        // Said to its end (no other key or word came in between): reading that was running carries on at the new speed, by key
+        // as by voice. Not compared with `cut`: after a key, what was cut is only noted once the cut reading has ended.
+        void speaker.say([line]).then((ok) => ok && resumeFlow(undefined, true));
       } else if (name === "goto") {
         const byId = args?.id ? list.findIndex((n) => n.id === args.id) : -1;
         const byAt = typeof args?.at === "number" && list[args.at] ? args.at : -1;

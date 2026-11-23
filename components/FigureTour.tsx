@@ -62,6 +62,8 @@ export default function FigureTour({ node, onLeave }: { node: TwinNode; onLeave:
   const base = quick ? (tour.overview.includes("still reading") ? tour.overview : `${tour.overview} ${STILL_READING}`) : `${tour.overview} ${stops.length} stops.`;
   const [spokenHint] = useState(() => {
     const h = inputStyle() === "voice" ? POINTER_HINT : hint;
+    // Not when Arc has just said it cannot point to every part, or that this chart has no curve to follow: the hint would contradict it.
+    if (unplacedLine(stops) || /no curve to follow/i.test(tour.overview)) return "";
     return hintsSaid.has(h) ? "" : h;
   });
   // The self-running tour: on, paused (P, Space, "hold on"), or off (the student goes at their own pace). A quick chart tour waits
