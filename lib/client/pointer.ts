@@ -37,9 +37,11 @@ export function realPointer(tour = false) {
   let pending: { x: number; y: number; ms: number } | null = null;
   let timer = 0;
   const wanted = () => document.documentElement.dataset.realPointer === "on" && document.documentElement.dataset.pointer !== "off";
-  void fetch("/api/pointer")
-    .then((r) => r.json())
-    .then((d: { available?: boolean }) => void (available = d.available === true), () => {});
+  // Only a copy on this machine can move the real pointer; a hosted copy answers 404, so it is not asked (a 404 in every visitor's console).
+  if (["localhost", "127.0.0.1", "[::1]"].includes(location.hostname))
+    void fetch("/api/pointer")
+      .then((r) => r.json())
+      .then((d: { available?: boolean }) => void (available = d.available === true), () => {});
   const allowed = () => available && wanted() && armed && !down && document.visibilityState === "visible" && document.hasFocus() && (tour || !document.querySelector("[data-tour]"));
   const send = () => {
     timer = 0;
