@@ -3,15 +3,12 @@ import Seen from "@/components/landing/Seen";
 import Show from "@/components/landing/Show";
 import Spectrum from "@/components/landing/Spectrum";
 import { ARC, TODAY } from "@/components/landing/scenes";
-import { GREETING } from "@/lib/keys";
+import { GREETING, HELPER_STORE_URL } from "@/lib/keys";
 
 // What Arc shows when nothing is loaded; rendered by the empty branch in components/Twin.tsx. The one box stays in the header
 // above, so the first form control is still the ask box. Four movements: what Arc is, what blind students get today (quoted from
 // the demo paper, lecture and PDF as published), the same material in Arc, and what does the work. The moving parts are
 // components/landing/*; they are silent and hidden from Arc's own speech. Styles: app/landing.css.
-
-/** The Chrome Web Store address of the Arc helper. Empty until the listing is published (extension/STORE.md); then the section shows "Add to Chrome". */
-export const STORE_URL = "";
 
 const KEYS: [string[], string][] = [
   [["↓", "↑"], "Next and previous paragraph."],
@@ -99,7 +96,7 @@ export default function Landing() {
           <p className="lp-sub">
             The Arc helper is a Chrome extension. Press one key on the page you are on, and Arc opens it and reads it aloud. It reads from your own browser, so pages behind a sign-in work too. Arc never gets your password, cookies or tokens, and the helper never clicks or types for you.
           </p>
-          <HelperInstall storeUrl={STORE_URL} />
+          <HelperInstall storeUrl={HELPER_STORE_URL} />
         </div>
       </section>
 

@@ -90,4 +90,4 @@ https://github.com/vihuynh72/arc/blob/main/docs/privacy.md
 4. Paste in the name, summary, description, category, single purpose, permission justifications and data-use answers above.
 5. Add screenshots at 1280x800 (at least one, up to five): for example the Arc start page, a page opened in Arc after Alt+Shift+A, and the options page. Use the 128 px icon from `extension/icons/` as the store icon. A small promo tile (440x280) is optional.
 6. Submit for review. Because of the optional access to all sites, expect a longer review and questions about it; the justification above is the answer.
-7. When the listing is live, put its address in `STORE_URL` in `components/Landing.tsx` so the start page shows an "Add to Chrome" link.
+7. When the listing is live, put its address in `HELPER_STORE_URL` in `lib/keys.ts`: the start page then shows an "Add to Chrome" link and the spoken answer points to the store.
