@@ -412,7 +412,8 @@ function core(utterance: string, s: string, c: Ctx): Resolved | null {
   if (!s || (s.split(" ").length > MAX_WORDS && !LOOKUP.has(s))) return null; // a listed phrase may be longer
   if (DISPLAY_PHRASES[s]) return { name: "display", args: { setting: DISPLAY_PHRASES[s] } };
   if (UPLOAD.has(s)) return { name: "upload" };
-  if (c.mode === "landing" && EXAMPLES[s]) return { name: "open", args: { url: EXAMPLES[s] } };
+  // "the example paper" is Arc's own, wherever it is asked for; "open the paper" on a page may mean that page's, so it stays the start page's.
+  if (EXAMPLES[s] && (c.mode === "landing" || (c.mode !== "tour" && /\bexample\b/.test(s)))) return { name: "open", args: { url: EXAMPLES[s] } };
   if (c.mode === "article" && ORIGINAL.has(s)) return { name: "original" };
   const pg = c.mode === "article" && c.paged ? s.match(/^(?:(?:go|turn) to )?page (\w+)$/) : null; // "go to page 40", "page 40"
   if (pg && num(pg[1])) return { name: "page", args: { n: num(pg[1]) } };
