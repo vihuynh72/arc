@@ -9,7 +9,9 @@
     "start": "export NODE_ENV=production; n=${ARC_CPUS:-2}; if command -v taskset >/dev/null && taskset -c 0-$((n-1)) true 2>/dev/null; then echo \"using taskset, CPUs 0-$((n-1))\"; exec taskset -c 0-$((n-1)) tsx server.ts; else echo no taskset; exec tsx server.ts; fi",
     "selfcheck": "tsx scripts/selfcheck.ts",
     "e2e": "tsx scripts/e2e.ts",
-    "lint": "eslint"
+    "lint": "eslint",
+    "check": "node scripts/factory.mjs --quick",
+    "factory": "node scripts/factory.mjs"
   },
   "dependencies": {
     "@echogarden/espeak-ng-emscripten": "0.3.5",

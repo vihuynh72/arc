@@ -1,5 +1,7 @@
 # Arc
 
+[![CI](https://github.com/vihuynh72/arc/actions/workflows/ci.yml/badge.svg)](https://github.com/vihuynh72/arc/actions/workflows/ci.yml)
+
 **Learn the page one sweep at a time.**
 
 Arc is a study tool for blind and low-vision students. Paste a link to a paper, a PDF or a lecture video and Arc rebuilds it as a page you can *hear*, then takes you through the parts other tools skip: the figures, the charts, the formulas and what is written on the board. You steer it with a few keys or your voice.
@@ -129,7 +131,11 @@ Good files to open first: `lib/types.ts` (the shared data model), `lib/intent.ts
 npm run selfcheck   # 46 offline check files: parsing, commands, tours, security rules. No keys, no network.
 npm run e2e         # 18 scenarios in a headless Chrome against a running app. Offline by default; spends nothing.
 npm run lint
+npm run check      # the quick gate: typecheck, lint, selfcheck (about 25 s)
+npm run factory    # the full gate: check, then build and run the browser suite on a scratch copy
 ```
+
+Before a commit or a pull request, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 `scripts/intent-eval.ts` measures how well Arc understands natural requests: 798 phrasings across nine situations, including long, polite and non-native ones.
 
