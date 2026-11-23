@@ -218,4 +218,45 @@ export default function check() {
   for (const w of ["what is a T helper cell", "what does the paper say about browser extensions", "send me the next page"]) assert.doesNotMatch(String(r(w, art())?.say), /Arc helper/, w);
   assert.equal(r("", art()), null);
   assert.equal(r("one", res), null);
+
+  // landing: going back to what was opened before (lib/client/recent.ts), answered with no model; the list is the browser's, given in ctx
+  const bio = { url: "https://openstax.org/books/biology-2e/pages/1", title: "Biology 2e: The Cell", kind: "page" as const, at: 3, place: { id: "n04", b: 1 } };
+  const knee = { url: "https://example.org/knee.pdf", title: "Knee sensors for rehabilitation", kind: "pdf" as const, at: 2 };
+  const vidr = { url: "https://www.youtube.com/watch?v=abc", title: "Reading pie graphs", kind: "video" as const, at: 1 };
+  const kept = art({ mode: "landing", onKind: null, index: -1, total: 0, how: "both", recent: [bio, knee, vidr] });
+  const none = art({ mode: "landing", onKind: null, index: -1, total: 0, how: "both", recent: [] });
+  for (const w of ["continue", "Continue.", "resume", "continue where I left off", "pick up where I left off", "what was I reading", "open my last one", "could you continue please"])
+    assert.deepEqual(r(w, kept), { name: "open", args: { url: bio.url, place: bio.place }, say: "Opening Biology 2e, where you left off." }, w);
+  assert.deepEqual(r("continue", art({ ...kept, recent: [knee] })), { name: "open", args: { url: knee.url }, say: "Opening Knee sensors for rehabilitation." }, "no place kept: no claim of one");
+  for (const w of ["continue", "what was I reading"])
+    assert.equal(r(w, none)?.say, "Nothing is kept from before on this browser yet. Paste a link, or hold Space and say what you want to study.", w);
+  assert.match(String(r("continue", { ...none, how: "voice" })?.say), /^Nothing is kept from before on this browser yet\. Say what you want to study\.$/);
+  assert.match(String(r("continue", { ...none, how: "keys" })?.say), /Paste a link and press Enter\.$/);
+  assert.deepEqual(r("continue my knee paper", kept)?.args, { url: knee.url });
+  assert.equal(r("open my reading pie graphs lecture", kept)?.args?.url, vidr.url);
+  assert.equal(r("go back to my biology paper", kept)?.args?.url, bio.url);
+  assert.match(String(r("continue my chemistry paper", kept)?.say), /^I did not find that among what you opened\. The newest is Biology 2e\. Say continue to open it\.$/);
+  assert.notEqual(r("open my chemistry notes", kept)?.say?.startsWith("I did not find"), true, "a request for something new is not answered from the kept list");
+  assert.deepEqual(r("open my file", kept), { name: "upload" }, "my file stays the file chooser");
+  const listed = r("what have I opened", kept);
+  assert.equal(listed?.say, "3 are kept. 1, Biology 2e. 2, Knee sensors for rehabilitation. 3, Reading pie graphs. Say continue, or say a number.");
+  assert.equal(listed?.list?.length, 3);
+  for (const w of ["my materials", "recent", "my list"]) assert.match(String(r(w, kept)?.say), /^3 are kept\./, w);
+  assert.match(String(r("my list", none)?.say), /^Nothing is kept/);
+  const after = { ...kept, list: { entries: listed!.list!, at: 100_000 } };
+  assert.equal(r("2", after)?.args?.url, knee.url);
+  assert.equal(r("the second one", after)?.args?.url, knee.url);
+  assert.equal(r("open the third one", after)?.args?.url, vidr.url);
+  assert.deepEqual(r("2", kept), { name: "none", say: LANDING_LINE }, "a number with no list just read out means nothing");
+  assert.deepEqual(r("forget what I opened", kept), { name: "forgetRecent", say: "Forgotten. Nothing from before is kept on this browser." });
+  for (const w of ["clear my list", "forget my materials"]) assert.equal(r(w, kept)?.name, "forgetRecent", w);
+  assert.match(help(kept), /Say continue to go back to what you opened before\./);
+  assert.doesNotMatch(help(none), /continue/);
+  // elsewhere these words mean what they always did: "continue" while reading goes on reading
+  for (const c of [art({ recent: [bio] }), vid, tour, res]) assert.equal(name("continue", c), c.mode === "results" ? "moreResults" : "continue", c.mode);
+  for (const c of [art({ recent: [bio] }), res]) {
+    assert.equal(name("what have I opened", c), null);
+    assert.notEqual(name("forget what I opened", c), "forgetRecent");
+    assert.notEqual(name("continue my biology paper", c), "open");
+  }
 }

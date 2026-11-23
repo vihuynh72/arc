@@ -7,6 +7,7 @@ import { blocksOf } from "@/lib/blocks";
 import { videoContext } from "@/lib/client/video";
 import { answerNarrow } from "@/lib/client/narrow";
 import { decisionState, distinctWords, PAGES_ONLY, help, inThread, isQuestion, normalise, questionSource, mumbled, routeDecision, searchAsked, wordSearchAllowed, NOT_CAUGHT_LINE, notUnderstood, resolveLocal, type Ctx, type Mode, type Offer, type Resolved } from "@/lib/intent";
+import { clearRecent, readRecent } from "@/lib/client/recent";
 import { tourOffer, type Style } from "@/lib/keys";
 import { findText, TOC_ID, withToc, findTopic, labelMatches, numOf, sentenceWith, topicWords, which, type Entry, type Unit } from "@/lib/outline";
 import type { TwinNode } from "@/lib/types";
@@ -68,6 +69,7 @@ function listen() {
     else if (n?.name === "readLecture") window.dispatchEvent(new CustomEvent("arc:video", { detail: "mode" })); // what V does: Arc reads the lecture
     else if (n?.name === "find" && n.args?.query) find(String(n.args.query));
     else if (n?.name === "findNext") findNext(n.args?.by === -1 ? -1 : 1);
+    else if (n?.name === "forgetRecent") clearRecent(); // "forget what I opened" on the start page (lib/client/recent.ts)
     else if (n?.name === "land" && n.args?.id) {
       const u = units().find((x) => x.id === n.args!.id && (x.block ?? "") === (n.args!.block ?? ""));
       if (u) land(u, "");
@@ -168,7 +170,7 @@ export function currentCtx(): Ctx {
     thread: lastExchange(),
     findAt: found ? foundAt : undefined,
     now: Date.now(),
-    ...(ctx.mode === "article" ? { outline: outline(), para: here.para, list: listed } : {}),
+    ...(ctx.mode === "article" ? { outline: outline(), para: here.para, list: listed } : ctx.mode === "landing" ? { list: listed, recent: readRecent() } : {}),
     ...extra(index),
   };
 }

@@ -18,6 +18,7 @@ import { useFocusVoice } from "@/lib/client/focusVoice";
 import { type Chunk, findNode, prefetchClip, probeLanguage, said, speaker, splitSentences, startWaitTone } from "@/lib/client/reader";
 import { fetchPage, isPdfFile, mergePage, pdfIntro, usePdf, watchPdfFiles, withFigures } from "@/lib/client/pdf";
 import { addressFor, clearGone, dropPlace, GONE_LINE, isPublic, markGone, type Place, readPlace, takeGone, updatePlace, worthKeeping } from "@/lib/client/place";
+import { keepRecentPlace, rememberRecent } from "@/lib/client/recent";
 import { usePageFix } from "@/lib/client/pageFix";
 import { type Late, mergeLate, saidTime, segmentsOf, videoIntro } from "@/lib/client/video";
 import { pageContext, setContext, stop as stopVoice, tourContext } from "@/lib/client/voice";
@@ -190,9 +191,14 @@ export default function Twin() {
   // Put the reading cursor on this node once it is on screen (a silent goto), then speak the lines.
   const [cursorTo, setCursorTo] = useState<{ id: string; lines: string[]; then?: () => void; b?: number; resume?: boolean; at?: string[] } | null>(null);
   // The place a reload left (lib/client/place.ts), until the link it belongs to has opened; startAt: a lecture's second, for its player.
-  const back = useRef<{ url: string; place: Place } | null>(null);
+  const back = useRef<{ url: string; place: Place; told?: boolean } | null>(null); // told: "Opening <title>, where you left off." was already said
   const [startAt, setStartAt] = useState<number | null>(null);
+  const resumeAt = useCallback((url: string, place: Place, told = false) => {
+    back.current = { url, place, told };
+    if (place.t != null) setStartAt(place.t);
+  }, []);
   const shown = useRef<string | null>(null); // the public link now in the address bar
+  const recorded = useRef(""); // the link and title last written to the list of what was opened (lib/client/recent.ts)
   const gone = useRef(false);
   const seq = useRef(0); // the newest load or search; an older one never swaps its result in
   const cursorHeading = useRef<string | null>(null);
@@ -276,6 +282,14 @@ export default function Twin() {
     const onBlock = (e: Event) => void (cursorBlock.current = (e as CustomEvent<NonNullable<typeof cursorBlock.current>>).detail ?? null);
     // The student's place in this tab: written a moment after the cursor stops moving, and at once when the page goes away.
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // The same place into the list of what was opened (localStorage): no oftener than every 3 s, and at once when the page goes away.
+    let rec: ReturnType<typeof setTimeout> | undefined;
+    const saveRec = () => {
+      clearTimeout(rec);
+      rec = undefined;
+      const t = twinRef.current;
+      if (t && !back.current && isPublic(t.source)) keepRecentPlace(t.source.url);
+    };
     const flush = () => {
       clearTimeout(timer);
       const t = twinRef.current;
@@ -284,7 +298,9 @@ export default function Twin() {
       const blk = cursorBlock.current;
       const place = { id: n.id, b: blk?.id === n.id ? blk.block : -1, ...(n.page != null && { page: n.page }) };
       if (worthKeeping(place, t.nodes[0]?.id)) updatePlace(t.source.url, place);
+      rec ??= setTimeout(saveRec, 3000);
     };
+    const leave = () => (flush(), saveRec());
     const keep = () => {
       clearTimeout(timer);
       timer = setTimeout(flush, 400);
@@ -293,12 +309,13 @@ export default function Twin() {
     const onBlockKeep = (e: Event) => (onBlock(e), keep());
     window.addEventListener("arc:cursor", onCursorKeep);
     window.addEventListener("arc:block", onBlockKeep);
-    window.addEventListener("pagehide", flush);
+    window.addEventListener("pagehide", leave);
     return () => {
       clearTimeout(timer);
+      clearTimeout(rec);
       window.removeEventListener("arc:cursor", onCursorKeep);
       window.removeEventListener("arc:block", onBlockKeep);
-      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("pagehide", leave);
     };
   }, []);
   useEffect(() => {
@@ -364,14 +381,14 @@ export default function Twin() {
   // After a reload the link opens as usual, but the cursor, the band and the scroll go back to the saved block (a PDF page that is not
   // loaded is fetched first, a lecture waits paused at its second), the opening lines are not read, and one line says where the student
   // is. Then Arc waits: Down or "go on" reads the next block. "" when the place no longer exists (the page changed).
-  const land = useCallback(async (t: TwinData, p: Place, mine: number): Promise<string> => {
+  const land = useCallback(async (t: TwinData, p: Place, mine: number, told = false): Promise<string> => {
+    const lead = told ? "" : `Back on ${shortTitle(t.source.title)}. `; // after "Opening <title>, where you left off." the title is not said again
     const how = inputStyle();
-    const title = shortTitle(t.source.title);
     if (t.video) {
       const segs = segmentsOf(t.nodes);
       const seg = segs.filter((n) => (n.start as number) <= (p.t ?? 0) + 0.05).pop() ?? segs[0];
       if (seg) setCursorTo({ id: seg.id, lines: [], resume: true });
-      return `Back on ${title}. You were at ${saidTime(p.t ?? 0)}. ${cue(how, "Say play to go on.", "Press P to go on.")}`;
+      return `${lead}You were at ${saidTime(p.t ?? 0)}. ${cue(how, "Say play to go on.", "Press P to go on.")}`;
     }
     if (t.pdf && p.page && !t.nodes.some((n) => n.id === p.id)) {
       const r = await fetchPage(t.pdf.id, p.page, true);
@@ -384,7 +401,7 @@ export default function Twin() {
     if (!n) return "";
     const b = n.id === p.id ? p.b : -1;
     setCursorTo({ id: n.id, b, resume: true, lines: [] });
-    return `Back on ${title}. You were ${placeWords(t, n, b)}. ${cue(how, "Say go on.", "Press Down to go on.")}`;
+    return `${lead}You were ${placeWords(t, n, b)}. ${cue(how, "Say go on.", "Press Down to go on.")}`;
   }, []);
   // The lines a page opens with, or, when a reload left a place for this link, the place (above).
   const opened = useCallback(
@@ -392,8 +409,9 @@ export default function Twin() {
       const b = back.current;
       if (!b || b.url !== target || (t.video && b.place.t == null)) return intro(lines);
       back.current = null;
-      void land(t, b.place, mine).then((line) => {
+      void land(t, b.place, mine, b.told).then(async (line) => {
         if (mine !== seq.current) return;
+        if (line && b.told && !(await freeFor(turnNow()))) return; // the opening words are still being said: the place follows them
         if (line) sayFirst(line);
         else intro([CHANGED, ...lines]);
       });
@@ -905,15 +923,12 @@ export default function Twin() {
       .then((): Promise<unknown> | undefined => {
         // A reload of an open link: the place this tab kept for it (lib/client/place.ts) is used once the link has opened.
         const place = !doc && url && /^https?:\/\//i.test(url) ? readPlace(url) : null;
-        if (place && url) {
-          back.current = { url, place };
-          if (place.t != null) setStartAt(place.t);
-        }
+        if (place && url) resumeAt(url, place);
         return doc ? loadDoc(doc) : url && /^https?:\/\//i.test(url) ? load(url, false) : q ? submitUtterance(q) : notice ? restricted() : undefined;
       })
       .catch(() => {})
       .finally(clear);
-  }, [load, loadDoc]);
+  }, [load, loadDoc, resumeAt]);
 
   // The address bar names what is open, so a reload (an accidental Cmd+R, a restored tab) opens it again: /?url=<link> for a public
   // link; "/" for the start page and search results. A private page, an upload and an assessment put nothing in the address and
@@ -921,8 +936,13 @@ export default function Twin() {
   useEffect(() => {
     if (!twin && !found) return; // still opening: the address already names what is coming
     const link = !found && twin && isPublic(twin.source) ? twin.source.url : null;
+    if (shown.current && shown.current !== link) keepRecentPlace(shown.current); // the list keeps where it was left
     if (shown.current && shown.current !== link) dropPlace(shown.current);
     shown.current = link;
+    if (link && twin && recorded.current !== `${link}|${twin.source.title}`) {
+      recorded.current = `${link}|${twin.source.title}`;
+      rememberRecent(twin.source); // refuses anything not public: lib/client/recent.ts
+    }
     if (!found && twin && !link) markGone(twin.source.url.startsWith("upload:") ? "file" : "private");
     else clearGone();
     const want = link ? addressFor(link) : "/";
@@ -948,13 +968,13 @@ export default function Twin() {
     if (kind && (nav === "reload" || nav === "back_forward") && !/[?&](url|q|doc|receive)=/.test(location.search)) sayFirst(GONE_LINE[kind]);
   }, []);
 
-  const handlers = useRef({ search, open, load, found, twin, tourId, leaveTour, openFile, follow });
+  const handlers = useRef({ search, open, load, found, twin, tourId, leaveTour, openFile, follow, resumeAt });
   useEffect(() => {
-    handlers.current = { search, open, load, found, twin, tourId, leaveTour, openFile, follow };
+    handlers.current = { search, open, load, found, twin, tourId, leaveTour, openFile, follow, resumeAt };
   });
   useEffect(() => {
     const onCommand = (e: Event) => {
-      const { name, args } = (e as CustomEvent<{ name: string; args?: { query?: string; url?: string; id?: string; at?: number; file?: File; by?: number } }>).detail ?? {};
+      const { name, args } = (e as CustomEvent<{ name: string; args?: { query?: string; url?: string; id?: string; at?: number; file?: File; by?: number; place?: Place } }>).detail ?? {};
       const h = handlers.current;
       // "next page" / "previous page" on a web page: the page's own next and previous links (a PDF turns its pages: lib/client/pdf.ts).
       if (name === "page" && typeof args?.by === "number" && h.twin && !h.twin.pdf && !h.found) {
@@ -997,7 +1017,10 @@ export default function Twin() {
         // at: the result under the cursor, or a counted one ("open the second one"), from the local grammar.
         const url = args?.url ?? h.found?.results[typeof args?.at === "number" ? args.at : Number(args?.id?.slice(1)) - 1]?.url;
         if (url && h.twin?.links?.some((l) => l.url === url)) h.follow(url);
-        else if (url) h.open(url);
+        else if (url) {
+          if (args?.place) h.resumeAt(url, args.place, true); // from what was opened before: opens where the student left off, as a reload does
+          h.open(url);
+        }
       }
       if (name === "leave") {
         const node = h.twin?.nodes.find((n) => n.id === h.tourId);

@@ -23,7 +23,7 @@ This page says what leaves your browser, where it goes, why, and how long it is 
 
 ## What Arc keeps about you
 
-Nothing that names you. The server counts requests per visitor address to enforce limits; logs show an address only as a short hash that changes at each restart, and hold no question, transcript or page text. Your display settings and your place in a page are stored in your own browser.
+Nothing that names you. The server counts requests per visitor address to enforce limits; logs show an address only as a short hash that changes at each restart, and hold no question, transcript or page text. Your display settings and your place in a page are stored in your own browser. So are the titles and addresses of the public pages you opened lately, and where you stopped in each, so that you can say "continue" tomorrow. That list never leaves your browser and is never sent to Arc. It is never kept for a private page, a quiz or an uploaded file. Say "forget what I opened", or press "Forget this list" on the start page, and it is cleared.
 
 ## On a quiz or test
 
