@@ -216,6 +216,14 @@ export default function check() {
   for (const w of ["how do I install the helper?", "How do I get the extension", "what is the arc helper", "how do i send this page to arc", "can I send a page from my browser", "add the chrome extension"])
     assert.match(String(r(w, land)?.say), /^The Arc helper is a Chrome extension/, w);
   for (const w of ["what is a T helper cell", "what does the paper say about browser extensions", "send me the next page"]) assert.doesNotMatch(String(r(w, art())?.say), /Arc helper/, w);
+  // out of a page by voice (three simulated students could not find a way: 2026-11-23); "go to the start" and "start over" stay the top of the page
+  for (const w of ["go home", "go back to the start page", "take me to the start page", "leave this paper", "close this and go home", "home page"]) assert.equal(r(w, art())?.name, "home", w);
+  assert.notEqual(r("go to the start", art())?.name, "home");
+  assert.notEqual(r("go home", land)?.name, "home");
+  assert.match(String(r("what do you keep about me?", art())?.say), /^Arc has no accounts/);
+  assert.match(String(r("helper steps", land)?.say), /^One: download Arc/);
+  assert.equal(r("forget what I opened", art())?.name, "forgetRecent");
+  assert.match(String(r("what have I opened", art())?.say), /kept/);
   assert.equal(r("", art()), null);
   assert.equal(r("one", res), null);
 
@@ -255,8 +263,8 @@ export default function check() {
   // elsewhere these words mean what they always did: "continue" while reading goes on reading
   for (const c of [art({ recent: [bio] }), vid, tour, res]) assert.equal(name("continue", c), c.mode === "results" ? "moreResults" : "continue", c.mode);
   for (const c of [art({ recent: [bio] }), res]) {
-    assert.equal(name("what have I opened", c), null);
-    assert.notEqual(name("forget what I opened", c), "forgetRecent");
+    assert.match(String(r("what have I opened", c)?.say), c.recent?.length ? /^One is kept\. 1, Biology 2e\. Say go home, then continue, to open one\.$/ : /^Nothing is kept/); // heard anywhere; opened from the start page
+    assert.equal(name("forget what I opened", c), "forgetRecent");
     assert.notEqual(name("continue my biology paper", c), "open");
   }
 }

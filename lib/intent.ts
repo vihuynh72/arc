@@ -30,7 +30,7 @@
 // | contents, outline, what is in this section | article: the headings spoken as a list; "the second one" then picks from it        |
 
 import { byName, contents, figureByWords, figureRef, findRef, findText, inside, ordinal, parseRef, path, relate, topicWords, topLevel, type Entry, type Found, type Unit } from "./outline";
-import { cue, HELPER_LINE, SPEED_KEYS, tourOffer, type Style } from "./keys";
+import { cue, HELPER_LINE, HELPER_STEPS, KEEPS_LINE, SPEED_KEYS, tourOffer, type Style } from "./keys";
 import { findRecent, saidTitle, type Recent } from "./client/recent";
 
 export type Mode = "landing" | "article" | "results" | "video" | "tour";
@@ -105,7 +105,7 @@ function voiceHelp(c: Ctx): string {
   if (c.mode === "video") return `This is a lecture video. Say play or pause, back ten seconds or skip ahead, next for the next part, faster or slower, or what is on the screen. You can ask me anything about the lecture.${c.behind ? " Say go back to the results to leave it." : ""}`;
   if (c.onKind === "figure") return "You are on a picture. Say tour to explore it, or go on to keep reading. You can ask me anything about it.";
   const pdf = c.paged ? " Say page and a number to jump to a page." : "";
-  return `Say read, and I read on until you stop me. Say next or go back to move, slower or faster for the speed, where am I, contents, or is there a picture.${pdf} Hold on, or stop, pauses me. You can also ask me any question about the page.${c.behind ? " Say go back to the results to leave this page." : ""}`;
+  return `Say read, and I read on until you stop me. Say next or go back to move, slower or faster for the speed, where am I, contents, or is there a picture.${pdf} Hold on, or stop, pauses me. You can also ask me any question about the page.${c.behind ? " Say go back to the results to leave this page." : " Say go home to leave this page."}`;
 }
 
 /** Two or three things to say next, for where the student is: the end of every "I'm not sure" line. */
@@ -132,7 +132,7 @@ export function help(c: Ctx, more = false): string {
     if (c.mode === "tour") return `In a tour: it plays by itself until you press a key. Right or Down Arrow is the next stop, Left or Up the previous one, Enter repeats it. P pauses and resumes. ${SPEED_KEYS} changes the speed. Hold Space to ask about the part you are on. Escape leaves the tour.`;
     if (c.mode === "results") return "In results: Down arrow reads the next result. Say open the first one, or press Enter on the one you want. Say leave to go back to your page. Say a new topic to search again.";
     const pdf = c.paged ? " Pages: page 4, next page, previous page, what page am I on." : "";
-    return `Moving: next, back, next section, section 2.1, go to and a section name, figure 3, top, end, go back.${pdf} Finding: find and a word, then next match. Where you are: where am I, how much is left, what comes next, contents, read the title. Reading: again, slower, faster, normal speed, stop. Questions: hold Space and ask anything about the page.`;
+    return `Moving: next, back, next section, section 2.1, go to and a section name, figure 3, top, end, go back, go home for the start page.${pdf} Finding: find and a word, then next match. Where you are: where am I, how much is left, what comes next, contents, read the title. Reading: again, slower, faster, normal speed, stop. Questions: hold Space and ask anything about the page.`;
   }
   const tail = " Escape stops me. Say more help for the full list.";
   if (c.mode === "landing") return `Paste a link and press Enter, or hold Space and say what you want to study. You can also say open the example paper.${BACK} Press slash to type.${tail}`;
@@ -1039,6 +1039,19 @@ function recentLocal(utterance: string, s: string, c: Ctx): Resolved | null {
   return list.length ? say(`I did not find that among what you opened. The newest is ${saidTitle(list[0].title)}. Say continue to open it.`) : nothing;
 }
 
+const HELPER_HOW = /^(?:(?:the |read (?:me )?the )?helper steps|how do i add (?:it|the helper) by hand)$/;
+const ASKS_KEPT = /\bwhat do you (?:keep|store|save|know|remember|record) about me\b|\bdo you (?:keep|store|save|record) (?:my|what i|anything)\b|\bwhat (?:data|information) do you (?:keep|store|collect)\b/;
+// "go to the start" and "start over" stay the top of the page; "leave" alone is the tour's and the results' own word.
+const GO_HOME = /^(?:go home|home|home ?page|start ?page|(?:go|take me|get me|bring me)(?: back)? to (?:the |arc's )?(?:home|home ?page|start ?page|home screen|start screen)|back to (?:the )?(?:home|start) ?(?:page|screen)|(?:leave|close|exit|quit) (?:this|the)(?: (?:paper|page|article|pdf|video|lecture|document|file))?(?: and go (?:home|back))?|close (?:this|it) and go home)$/;
+/** Away from the start page: the kept list can still be heard and cleared; opening from it is the start page's ("continue"). */
+function recentAnywhere(p: string, c: Ctx): Resolved | null {
+  const list = c.recent ?? [];
+  if (RECENT_FORGET.has(p)) return { name: "forgetRecent", say: "Forgotten. Nothing from before is kept on this browser." };
+  if (!RECENT_LIST.has(p) || p === "recent" || p.endsWith("my list")) return null;
+  if (!list.length) return { name: "none", say: "Nothing is kept from before on this browser yet." };
+  return { name: "none", say: `${list.length === 1 ? "One is kept." : `${list.length} are kept.`} ${list.slice(0, 5).map((e, i) => `${i + 1}, ${saidTitle(e.title)}.`).join(" ")} Say go home, then continue, to open one.` };
+}
+
 export function resolveLocal(utterance: string, c: Ctx): Resolved | null {
   const s = normalise(utterance.normalize("NFC"));
   if (!s) return null;
@@ -1051,7 +1064,15 @@ export function resolveLocal(utterance: string, c: Ctx): Resolved | null {
       ? { name: "none", say: `That does not look like a link. Do you want me to search for ${broken}? Say yes.`, offer: { name: "search", args: { query: broken }, say: `Searching for ${broken}.` } }
       : { name: "none", say: "That does not look like a link. Paste the whole address, starting with https." };
   if (FILLER.test(s)) return { name: "none", say: NOT_CAUGHT_LINE };
+  if (HELPER_HOW.test(s)) return { name: "none", say: HELPER_STEPS };
   if (ASKS_HELPER.test(s)) return { name: "none", say: HELPER_LINE };
+  if (ASKS_KEPT.test(s)) return { name: "none", say: KEEPS_LINE };
+  // Out of a page, a lecture or the results, to the start page: the greeting there says where the student is (and offers "continue").
+  if (c.mode !== "landing" && GO_HOME.test(polite(s))) return { name: "home", say: "Back to the start page." };
+  if (c.mode !== "landing") {
+    const k = recentAnywhere(polite(s), c);
+    if (k) return k;
+  }
   if (MORE_HELP.has(s) && !(s === "more" && c.mode !== "landing")) return { name: "none", say: help(c, true) };
   if (c.mode === "landing") {
     const k = recentLocal(utterance, s, c);

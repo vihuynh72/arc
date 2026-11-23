@@ -77,6 +77,7 @@ const VIDEO_LINE = "Outlining the video with Gemini.";
 // about it, and only when there is something to say: the page changed, or the check failed. Silence means this is the current page.
 const NEWER = "A newer version of the page is now on screen.";
 const LIVE_FAILED = "I could not check for a newer version, so this may be an older copy.";
+const LIVE_THIN = "The live page came back incomplete, so this is the saved copy.";
 /** What kind of copy this is, when the server says so in a first block "About this copy" ("the authors' accepted manuscript"). */
 const aboutCopy = (t: TwinData) => {
   const n = t.nodes[0];
@@ -370,6 +371,10 @@ export default function Twin() {
       }
       if (mine !== seq.current) return;
       const turn = turnNow();
+      // A live copy far thinner than the stored one (a paper of 23 sections and 22 figures came back as 2 sections and none: the
+      // publisher served its metrics page) is a failed fetch, not a newer version: the stored copy stays, and nothing is swapped under the student.
+      const parts = (x: TwinData) => x.counts.sections + x.counts.segments;
+      if (t && (parts(t) * 2 < parts(stored) || (stored.counts.figures >= 2 && !t.counts.figures))) return void ((quiet.current = LIVE_THIN), setStatus(LIVE_THIN));
       if (!t) return void ((quiet.current = LIVE_FAILED), setStatus(LIVE_FAILED)); // on screen only (voice first skips it too): never said on its own
       const changed = t.source.title !== stored.source.title || counted(t) !== counted(stored);
       if (!(await swapIn(t, mine, changed && (await freeFor(turn)) ? [NEWER] : []))) return;
@@ -992,7 +997,7 @@ export default function Twin() {
           // In the results: "read me the results", "what did you find": the list again from the top.
           readUpTo.current = Math.min(3, h.found.results.length);
           setCursorTo({ id: "r01", ...resultLines(h.found.results, 0, `${plural(h.found.results.length, "result")} for ${h.found.query}.`) });
-        } else if (!l || h.found) void speaker.say([searchPending() ? "Still searching. One moment." : "There are no results yet. Say what you want to study."]);
+        } else if (!l || h.found) void speaker.say([searchPending() ? "Still searching. One moment." : h.twin ? "There are no search results to go back to. Say go home for the start page." : "There are no results yet. Say what you want to study."]);
         else {
           ++seq.current;
           setTourId(null);
