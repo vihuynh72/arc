@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A newer push to the same branch or pull request cancels the run it supersedes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # The required gate. Offline, no keys, deterministic: the same steps as `npm run check`, plus the production build.
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Route types
+        run: npx next typegen
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Lint
+        run: npm run lint
+      - name: Selfcheck
+        run: npm run selfcheck
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+
+  # The browser suite against a production server started offline (scripts/factory.mjs --ci: no keys, no spend, no local voice model).
+  # NOT a required check yet: it becomes required once it has passed ten runs in a row. An unproven browser job must not block merges.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Google Chrome is installed on the runner
+        run: google-chrome --version
+      - name: Build, serve offline and run the e2e suite
+        run: node scripts/factory.mjs --ci --artifacts e2e-artifacts
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+      - name: Keep logs and screenshots of a failed run
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: e2e-artifacts
+          if-no-files-found: ignore
+          retention-days: 14

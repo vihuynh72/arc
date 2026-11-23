@@ -10,6 +10,8 @@
     "selfcheck": "tsx scripts/selfcheck.ts",
     "e2e": "tsx scripts/e2e.ts",
     "lint": "eslint",
+    "check": "node scripts/factory.mjs --quick",
+    "factory": "node scripts/factory.mjs",
     "pack:extension": "rm -f arc-helper.zip && cd extension && zip -qr ../arc-helper.zip . -x README.md STORE.md icons/icon.svg '*.DS_Store'"
   },
   "dependencies": {

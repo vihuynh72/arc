@@ -50,6 +50,9 @@ AGENTS.md
 .impeccable/
 .notes/
 
+# logs and screenshots of a CI e2e run (scripts/factory.mjs --ci --artifacts e2e-artifacts)
+/e2e-artifacts/
+
 # blind-student harness session logs
 scripts/blind/logs/
 
