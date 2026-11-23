@@ -85,7 +85,16 @@ export const keepRecentPlace = (url: string) => {
 export const clearRecent = () => write([]);
 
 /** The start page's opening words: the greeting, and when something is kept one sentence about going back to it. */
+let cameHome: boolean | undefined; // read once per load: the student just said "go home" (lib/client/command.ts)
 export const greeting = () => {
+  if (cameHome === undefined) {
+    cameHome = false;
+    try {
+      cameHome = sessionStorage.getItem("arc-came-home") === "1";
+      sessionStorage.removeItem("arc-came-home");
+    } catch {}
+  }
   const r = readRecent()[0];
-  return r ? `${GREETING} Say continue to go back to ${saidTitle(r.title)}.` : GREETING;
+  const hello = cameHome ? GREETING.replace(/^Arc\. /, "Start page. ") : GREETING;
+  return r ? `${hello} Say continue to go back to ${saidTitle(r.title)}.` : hello;
 };

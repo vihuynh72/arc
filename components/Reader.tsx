@@ -655,11 +655,12 @@ export default function Reader({ items, paused, onTour, video = false, blocks: b
     const timer = setInterval(() => {
       const now = performance.now();
       if (L.paused || L.video || speaker.busy || answering() || document.querySelector(".mic[aria-pressed='true'], dialog[open]")) return;
-      // After a deliberate Escape (and nothing since), about 2 s; after any other interruption, 6 s.
-      const wait = L.escAt >= L.anyAt - 50 ? 2000 : 6000;
+      // After a deliberate Escape (and nothing since), under a second (two rounds of simulated students took 3 s of nothing for a
+      // key that had not worked); after any other interruption, 6 s.
+      const wait = L.escAt >= L.anyAt - 50 ? 700 : 6000;
       if (L.quiet || speaker.cutAt <= speaker.sayAt || now - Math.max(speaker.cutAt, L.anyAt) < wait) return;
       void speaker.say([pausedLine(inputStyle())]);
-    }, 1000);
+    }, 250);
     for (const ev of ["keydown", "pointerdown", "arc:command", "arc:heard"]) window.addEventListener(ev, any, true);
     return () => {
       clearInterval(timer);

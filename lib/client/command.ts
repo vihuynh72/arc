@@ -69,7 +69,14 @@ function listen() {
     else if (n?.name === "readLecture") window.dispatchEvent(new CustomEvent("arc:video", { detail: "mode" })); // what V does: Arc reads the lecture
     else if (n?.name === "find" && n.args?.query) find(String(n.args.query));
     else if (n?.name === "findNext") findNext(n.args?.by === -1 ? -1 : 1);
-    else if (n?.name === "home") setTimeout(() => location.assign("/"), 1300); // after "Back to the start page."; a full load, as the wordmark link does
+    else if (n?.name === "home") {
+      // A full load, as the wordmark link does, and at once: a line said here was cut off by the load every time, and a link pasted
+      // in that second was lost. The start page's own first words say where the student is (lib/client/recent.ts greeting).
+      try {
+        sessionStorage.setItem("arc-came-home", "1");
+      } catch {}
+      location.assign("/");
+    }
     else if (n?.name === "forgetRecent") clearRecent(); // "forget what I opened" on the start page (lib/client/recent.ts)
     else if (n?.name === "land" && n.args?.id) {
       const u = units().find((x) => x.id === n.args!.id && (x.block ?? "") === (n.args!.block ?? ""));
