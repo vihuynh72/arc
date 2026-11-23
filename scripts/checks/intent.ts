@@ -196,6 +196,7 @@ export default function check() {
   assert.match(String(r("open the textbook", land)?.args?.url), /openstax\.org\/.+endocrine-pancreas$/);
   assert.equal(r("open the paper", land)?.name, "open");
   assert.equal(r("open the paper", base), null);
+  assert.match(String(r("open the example paper", art())?.args?.url), /mdpi\.com\/1424-8220\/24\/6\/1935/); // asked for by name: from inside a page too
 
   // whole utterance only: longer sentences go on to Decision and Gemini
   for (const w of [
