@@ -1026,10 +1026,23 @@ export default function Twin() {
           if (args?.place) {
             // From what was opened before: opens where the student left off, as a reload does. "Opening <title>, where you left
             // off." is heard to its end first (the load cut it after one word); the page is fetched meanwhile by the browser's cache or not at all.
-            const go = () => (h.resumeAt(url, args.place!, true), h.open(url));
-            const t0 = performance.now();
-            const wait = () => (speaker.busy && performance.now() - t0 < 6000 ? void setTimeout(wait, 100) : go());
-            return void setTimeout(wait, 150);
+            // Waits for that line's own end (or 7 s): the speaker is not yet "busy" while the line's clip is being made.
+            let gone = false;
+            const go = () => {
+              if (gone) return;
+              gone = true;
+              clearTimeout(cap);
+              window.removeEventListener("arc:heard", ended);
+              h.resumeAt(url, args.place!, true);
+              h.open(url);
+            };
+            const ended = (ev: Event) => {
+              const d = (ev as CustomEvent<{ kind?: string; phase?: string; text?: string }>).detail;
+              if (d?.kind === "speech" && d.phase !== "start" && d.text?.startsWith("Opening ")) go();
+            };
+            const cap = setTimeout(go, 7000);
+            window.addEventListener("arc:heard", ended);
+            return;
           }
           h.open(url);
         }
