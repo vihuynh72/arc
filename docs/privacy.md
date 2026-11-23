@@ -31,4 +31,4 @@ Arc reads the questions to you. It does not give, hint at, confirm or rule out a
 
 ## Questions or a problem
 
-Open an issue at https://github.com/vihuynh72/arc/issues. For a security problem, please do not post details publicly; say only that you have one and how to reach you.
+Open an issue at https://github.com/vihuynh72/arc/issues. For a security problem, use the private form described in [SECURITY.md](../SECURITY.md).
