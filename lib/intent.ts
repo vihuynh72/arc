@@ -294,6 +294,10 @@ const DISPLAY_PHRASES: Record<string, string> = {
   "blind mode": "voice-first", "voice first": "voice-first", "turn on voice first": "voice-first",
   "turn off voice first": "voice-first-off", "voice first off": "voice-first-off",
   "reset display": "reset", "reset the display": "reset",
+  // Experimental screen reader mode (lib/client/srLive.ts): exact phrases only, so a question about screen readers still goes to the model.
+  "use my screen reader": "sr-on", "screen reader mode": "sr-on", "turn on screen reader mode": "sr-on",
+  "use your own voice": "sr-off", "arc voice": "sr-off", voice: "sr-off", "use arc voice": "sr-off", // "arc voice" is normalised to "voice" (the leading "arc" is dropped)
+  "stop using my screen reader": "sr-off", "turn off screen reader mode": "sr-off",
 };
 
 // The prepared examples the landing screen links to (components/Landing.tsx); only said on the landing.

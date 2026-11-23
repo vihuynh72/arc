@@ -4,6 +4,7 @@
 // Through the speaker only, never an aria-live region. Mounted once by components/Twin.tsx.
 import { useEffect } from "react";
 import { answering } from "./voice";
+import { srOn } from "./srLive";
 import { prefetchClip, speaker } from "./reader";
 import { HELP_LOCAL, keyAct, NOTHING_PLAYING, OPENING, PAUSED, UNKNOWN_KEY } from "@/lib/keys";
 
@@ -56,7 +57,7 @@ export function useFocusVoice() {
     const onPointer = () => void (pointerAt = performance.now());
     const onFocus = (e: FocusEvent) => {
       const el = e.target as HTMLElement;
-      if (byPointer() || !(el instanceof HTMLElement)) return;
+      if (srOn() || byPointer() || !(el instanceof HTMLElement)) return; // screen reader mode: the screen reader names what has focus
       const into = el.closest("dialog") && !(e.relatedTarget as HTMLElement | null)?.closest?.("dialog");
       // A moment later: an arrow key in a radio group moves focus before it checks the radio.
       setTimeout(() => {
@@ -69,11 +70,11 @@ export function useFocusVoice() {
     // A details panel opened or closed from the keyboard, a choice made with the pointer: said in one word or line.
     const onToggle = (e: Event) => {
       const d = e.target as HTMLElement;
-      if (d instanceof HTMLDetailsElement && !byPointer() && d.querySelector(":scope > summary") === document.activeElement) void speaker.say([d.open ? "Expanded." : "Collapsed."]);
+      if (d instanceof HTMLDetailsElement && !srOn() && !byPointer() && d.querySelector(":scope > summary") === document.activeElement) void speaker.say([d.open ? "Expanded." : "Collapsed."]);
     };
     const onChange = (e: Event) => {
       const el = e.target as HTMLInputElement;
-      if (el.type === "radio" && byPointer()) void speaker.say([`${clean(el.closest("label")?.textContent)}, selected.`]);
+      if (el.type === "radio" && !srOn() && byPointer()) void speaker.say([`${clean(el.closest("label")?.textContent)}, selected.`]);
     };
     // The start page has no reading cursor (components/Reader.tsx answers keys on a page): here every key still gets a word.
     const onKey = (e: KeyboardEvent) => {
