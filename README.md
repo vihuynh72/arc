@@ -71,9 +71,18 @@ Everything can be done by key or by voice. Arc speaks for itself, so turn your s
 | Ask a question | hold `Space` and speak | |
 | Type instead | `/` | |
 | Stop the voice | `Escape` | "stop" |
+| Leave a page | | "go home" |
+| Pick up where you left off (on the start page) | | "continue", "continue my biology paper", "what have I opened" |
+| Clear what Arc remembers in this browser | | "forget what I opened" |
 | Help | `?` | "help" |
 
 The most basic commands also work in Spanish, French, German and Vietnamese ("siguiente", "arrête", "hilfe", "tiếp theo").
+
+## Send a page with one key
+
+Pasting a link is its own obstacle. The Arc helper is a Chrome extension: press `Alt+Shift+A` (`Option+Shift+A` on a Mac) on any page and Arc opens it, says "Reading the page from your tab." at once, and reads it. Because it reads from your own browser, pages behind a sign-in work too, and Arc never gets your password, cookies or tokens.
+
+The helper is not in the Chrome Web Store yet. Until it is, load it by hand from [`extension/`](extension/README.md); the start page has the steps, and Arc will say them if you ask "how do I install the helper?".
 
 ## How it works
 
@@ -101,7 +110,7 @@ A few rules the code holds itself to: a student is never left in silence; Arc ac
 
 ## Privacy
 
-- No accounts, no logins, no stored student data.
+- No accounts, no logins, no student data stored on Arc's server. The titles of the public pages you opened and where you stopped are kept in your own browser, so "continue" works tomorrow; "forget what I opened" clears them.
 - Private pages and uploaded PDFs live in the server's memory only, for about two hours, never on disk, in an address or in a log.
 - A hosted copy keeps no recordings or transcripts of what visitors ask, and does not ask Google to hold a voice session for later (session resumption is off there).
 - What leaves your browser, to which service and for how long: [docs/privacy.md](docs/privacy.md).
@@ -130,11 +139,12 @@ Good files to open first: `lib/types.ts` (the shared data model), `lib/intent.ts
 ## Checks
 
 ```bash
-npm run selfcheck   # 46 offline check files: parsing, commands, tours, security rules. No keys, no network.
+npm run selfcheck   # 47 offline check files: parsing, commands, tours, security rules. No keys, no network.
 npm run e2e         # 18 scenarios in a headless Chrome against a running app. Offline by default; spends nothing.
 npm run lint
 npm run check      # the quick gate: typecheck, lint, selfcheck (about 25 s)
 npm run factory    # the full gate: check, then build and run the browser suite on a scratch copy
+npx tsx scripts/extension-e2e.ts   # the real helper extension, loaded in a browser, sending a signed-in page to a running Arc
 ```
 
 Before a commit or a pull request, see [CONTRIBUTING.md](CONTRIBUTING.md).
