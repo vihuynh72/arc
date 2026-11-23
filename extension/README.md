@@ -17,6 +17,10 @@ From the Chrome Web Store (when listed) the helper installs the same way and use
 - Only Arc's own pages (`http://localhost:3000`, the hosted copy) can message it. It reads a site only after you allowed it (Chrome's optional host permissions, per site; never all sites at once). It refuses `file:`, `chrome:`, `javascript:` and other non-web addresses, the browser's own pages, and any address that would start a quiz attempt.
 - Files: `background.js` (the helper; chrome.* calls behind one small layer), `rules.js` (what it refuses), `extract.js` (the page reader, shared with the bookmarklet and the checks), `consent.html`/`consent.js`, `options.html`/`options.js`, `arc-page.js` (tells Arc's own page the helper is installed).
 
+## Automatic test
+
+`npx tsx scripts/extension-e2e.ts` loads this folder in a browser, signs in to the pretend course site, clicks the helper and checks that Arc opens the page. It needs Arc running (`npm run dev`) and spends nothing. It cannot press the real shortcut; the manual test below covers that.
+
 ## Five-minute manual test
 
 Start Arc (`npm run dev`), set the helper's Arc address to `http://localhost:3000` in its options (the default is the hosted copy), and start the pretend course site: `node scripts/private-fixture.mjs` (http://127.0.0.1:8765). Press **Reload** on the extension first. (The scripts `private-e2e.ts` and `handoff-e2e.ts` do not load the extension; they take the Arc address as an argument.)
