@@ -55,8 +55,9 @@ const dispatch = (name: string, args: Args) => window.dispatchEvent(new CustomEv
 const time = (ask: Ask, what: string, at = performance.now()) => console.info(`[arc-timing] ${ask.id} ${what} ${Math.round(at - ask.t0)} ms after release`);
 // An open dialog (the Display panel) also keeps Space for its own controls.
 const typing = (t: EventTarget | null) => !!(t as HTMLElement | null)?.closest?.("input, textarea, select, [contenteditable='true'], dialog");
-// A focused control that Space activates (a button, link, summary, radio): Space clicks it, as everywhere; the microphone itself still talks.
-const control = (t: EventTarget | null) => !!(t as HTMLElement | null)?.closest?.("button:not(.mic), a[href], summary, input[type='radio'], input[type='checkbox']");
+// A focused control that Space activates (a button, summary, radio): Space clicks it, as everywhere; the microphone itself still talks.
+// Not a link: Space does not follow a link (Enter does), and a student who had tabbed onto one found Space dead, with no tone.
+const control = (t: EventTarget | null) => !!(t as HTMLElement | null)?.closest?.("button:not(.mic), summary, input[type='radio'], input[type='checkbox']");
 // Only the start page greets; a page opened by a link speaks its own first line.
 const onLanding = () => !!document.querySelector(".landing") && !/[?&](url|q|doc|receive)=/.test(location.search);
 // The one box with nothing typed in it: Space there talks too (focus often sits in the box).
