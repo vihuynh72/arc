@@ -14,7 +14,7 @@ import { afterAnswer, answerAgain, currentCtx, describe, geminiCommand, geminiDo
 import { HEARD_NOTHING, LOST_LINE, mayDispatch, norm, NOT_CAUGHT, ONE_MOMENT, TOO_QUIET } from "@/lib/client/hearing";
 import { mumbled, resolveLocal } from "@/lib/intent";
 import { prefetchClip, speaker, startWaitTone } from "@/lib/client/reader";
-import { answering, answerSounded, answerText, askAudio, askEnd, askResult, askStart, audioState, budgetOf, budgetSeen, chime, dropAnswer, playAnswer, say, stop, stopAnswer, type AskHooks } from "@/lib/client/voice";
+import { answering, answerSounded, answerText, askAudio, askEnd, askResult, askStart, audioState, budgetOf, budgetSeen, chime, dropAnswer, playAnswer, say, stop, stopAnswer, tick, type AskHooks } from "@/lib/client/voice";
 
 import { GREETING, NOTHING_PLAYING } from "@/lib/keys";
 import { greeting } from "@/lib/client/recent";
@@ -413,7 +413,7 @@ export default function AskButton() {
         if (idle && !nothingSaid.current && !typing(e.target)) {
           nothingSaid.current = true;
           void speaker.say([NOTHING_PLAYING]);
-        }
+        } else if (idle && !typing(e.target)) tick(220); // said once already: a low tick, so the key is never met with nothing at all
       } else if (backquote(e)) {
         e.preventDefault(); // never types a backquote, in the box or anywhere
         if (e.repeat) return;
